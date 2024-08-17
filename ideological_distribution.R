@@ -12,7 +12,7 @@ if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 
 # Resultados eleitorais CEPESP -----------------------------------------------
 party_seats <- read_xlsx("raw_data/party_seats_2020.xlsx") %>% 
-  rename(elec_year = 1, city_ibge = 5, city_name = 6, party = 8, 
+  rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
          disp_seats = 10, party_seat_share = 12) %>%
   mutate(party = case_when(party == "PC DO B" ~ "PCDOB",
                            party == "CIDADANIA" ~ "CID",
@@ -22,26 +22,25 @@ party_seats <- read_xlsx("raw_data/party_seats_2020.xlsx") %>%
   mutate(city_ibge = as.numeric(city_ibge))
 
 # Resultados eleitorais TSE ---------------------------------------------------
-voter <- elections_tse(year = 2020, type = "voter_profile")
-
-voter <- voter %>% group_by(CD_MUNICIPIO) %>% 
+voter <- elections_tse(year = 2020, type = "voter_profile") %>% 
+  group_by(CD_MUNICIPIO) %>% 
   reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
           NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
   mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
          CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"))
 
-party_zone <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all")
+party_zone <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
+                                SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                SG_PARTIDO != "PC do B" ~ SG_PARTIDO))
 
 # Resultados eleitorais em municipios onde ha segundo turno, porem o vencedor
 # obteve maioria
 majority_round <- party_zone %>% 
   left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
   filter(voter_sum > 200000) %>% 
-  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
-                                SG_PARTIDO == "CIDADANIA" ~ "CID",
-                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
-                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
-                                SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
   group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
@@ -52,18 +51,15 @@ majority_round <- party_zone %>%
   group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
   mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
   group_by(CD_MUNICIPIO) %>% 
-  filter(any(vote_share > 0.5)) %>% 
+  filter(any(vote_share > 0.5),
+         QT_VOTOS_NOMINAIS_VALIDOS %in% 
+           sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
   ungroup()
 
 # Resultados eleitorais em municipios onde nao existe segundo turno
 unique_round <- party_zone %>% 
   left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
   filter(voter_sum < 200000) %>% 
-  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
-                                SG_PARTIDO == "CIDADANIA" ~ "CID",
-                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
-                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
-                                SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
   group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
@@ -75,18 +71,13 @@ unique_round <- party_zone %>%
   mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(QT_VOTOS_NOMINAIS_VALIDOS %in% 
-  sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2])
+  sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
   ungroup()
 
 # Resultados eleitorais onde houve segundo turno
 second_round <- party_zone %>% 
   left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
   filter(voter_sum > 200000) %>% 
-  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
-                           SG_PARTIDO == "CIDADANIA" ~ "CID",
-                           SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
-                           SG_PARTIDO == "REPUBLICANOS" ~ "REP",
-                           SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(NR_TURNO == 2, CD_CARGO == 11) %>% 
   group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
@@ -181,14 +172,16 @@ bolognesi.table <- data.frame(party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "
                      "PSB", "REDE", "CID", "PV", "PTB", "AVANTE",
                      "SD", "PMN", "PMB", "PHS", "MDB", "PSD", "PSDB",
                      "PODE", "PPL", "PRTB", "PROS", "PRP", "REP", "PL",
-                     "PTC", "DC", "PSL", "NOVO", "PP", "PSC", "PATRIOTA", "DEM"),
+                     "PTC", "DC", "PSL", "NOVO", "PP", "PSC", "PATRIOTA", "DEM",
+                     "UNIÃO"),
            
                      # Media dos posicionamentos
                      ideob.mean = c(0.51, 0.61, 0.91, 1.28, 1.92, 2.97, 3.92,
                     4.05, 4.77, 4.92, 5.29, 6.1, 6.32,
                     6.5, 6.88, 6.9, 6.96, 7.01, 7.09, 7.11,
                     7.24, 7.27, 7.45, 7.47, 7.59, 7.78, 7.78,
-                    7.86, 8.11, 8.11, 8.13, 8.20, 8.33, 8.55, 8.57)) %>% 
+                    7.86, 8.11, 8.11, 8.13, 8.20, 8.33, 8.55, 8.57,
+                    (8.57+8.11)/2)) %>% 
   # Reescalamento
   mutate(ideo.b = case_when(
     ideob.mean <= 1.5 ~ -3,
@@ -214,8 +207,10 @@ party_seats.b_mun <- party_seats.b %>% filter(!is.na(ideo.b)) %>%
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
           ideo.b = sum(party_seat_share * ideo.b / notna_seats),
-          UF = UF) %>% 
-  ungroup()
+          UF = unique(UF)) %>% 
+  ungroup() %>% 
+  left_join(party_seats %>% select(city_tse, city_ibge) %>% 
+              distinct(city_ibge, city_tse), join_by(city_ibge))
 
 # Estatisticas descritivas
 max(party_seats.b_mun$ideob.mean)
@@ -228,7 +223,8 @@ party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>%
   group_by(UF) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
-          ideo.b = sum(party_seat_share * ideo.b / notna_seats))
+          ideo.b = sum(party_seat_share * ideo.b / notna_seats)) %>% 
+  ungroup()
 
 ### 2.1.2 Unindo a base de coordenadas geograficas ----------------------------
 
@@ -282,55 +278,28 @@ ggplot() +
 
 ## 2.2 Prefeituras ----------------------------------------------------------
 # Unindo com a base do TSE
-second_round_winner.b <- second_round %>% 
+mayor_top.b <- rbind(
+  second_round %>% 
   left_join(bolognesi.table, join_by(SG_PARTIDO == party),
-            copy = T) %>% 
+            copy = T), 
+  unique_round %>% 
+  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T), 
+  majority_round %>% 
+  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T))
+
+# Gerando medias ideologicas para cada prefeitura
+mayor.b <- mayor_top.b %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(vote_share == max(vote_share)) %>% 
-  ungroup()
-
-unique_round_winner.b <- unique_round %>% 
-  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
-            copy = T) %>% 
-  group_by(CD_MUNICIPIO) %>% 
-  filter(vote_share == max(vote_share)) %>% 
-  ungroup()
-
-majority_round_winner.b <- majority_round %>% 
-  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
-            copy = T) %>% 
-  group_by(CD_MUNICIPIO) %>% 
-  filter(vote_share == max(vote_share)) %>% 
-  ungroup()
-
-intersect(majority_round_winner.b$CD_MUNICIPIO, unique_round$CD_MUNICIPIO)
-intersect(majority_round_winner.b$CD_MUNICIPIO, second_round$CD_MUNICIPIO)
-intersect(unique_round$CD_MUNICIPIO, second_round$CD_MUNICIPIO)
-
-# Visualizacao de missings
-View(party_seats.b %>% filter(is.na(ideo.b)))
-
-# Gerando medias ideologicas para cada camara municipal
-party_seats.b_mun <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
-  group_by(city_ibge) %>% 
-  mutate(notna_seats = sum(party_seat_share)) %>% 
-  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
-          ideo.b = sum(party_seat_share * ideo.b / notna_seats),
-          UF = UF) %>% 
-  ungroup()
-
-# Estatisticas descritivas
-max(party_seats.b_mun$ideob.mean)
-min(party_seats.b_mun$ideob.mean)
-max(party_seats.b_mun$ideo.b)
-min(party_seats.b_mun$ideo.b)
-
-# Gerando medias ideologicas para cada estado
-party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
-  group_by(UF) %>% 
-  mutate(notna_seats = sum(party_seat_share)) %>% 
-  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
-          ideo.b = sum(party_seat_share * ideo.b / notna_seats))
+  ungroup() %>% 
+  rename(may_ideob.mean = ideob.mean,
+         may_ideo.b = ideo.b) %>% 
+  left_join(party_seats.b_mun %>% select(city_tse, ideob.mean, ideo.b),
+            join_by(CD_MUNICIPIO == city_tse)) %>% 
+  rename(leg_ideob.mean = ideob.mean,
+         leg_ideo.b = ideo.b)
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
