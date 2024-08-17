@@ -7,6 +7,7 @@ if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
 if(require(haven) == F) install.packages('haven'); require(haven)
 if(require(readxl) == F) install.packages('readxl'); require(readxl)
 if(require(sf) == F) install.packages('sf'); require(sf)
+if(require(stringr) == F) install.packages('stringr'); require(stringr)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 
 # Resultados eleitorais CEPESP -----------------------------------------------
@@ -21,15 +22,94 @@ party_seats <- read_xlsx("raw_data/party_seats_2020.xlsx") %>%
   mutate(city_ibge = as.numeric(city_ibge))
 
 # Resultados eleitorais TSE ---------------------------------------------------
-mayor <- elections_tse(year = 2020, type = "candidate")
+voter <- elections_tse(year = 2020, type = "voter_profile")
 
-# 1.1 Dados ideologicos (ZUCCO, POWER, 2023) ----------------------------------
+voter <- voter %>% group_by(CD_MUNICIPIO) %>% 
+  reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
+          NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
+  mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
+         CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"))
+
+party_zone <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all")
+
+# Resultados eleitorais em municipios onde ha segundo turno, porem o vencedor
+# obteve maioria
+majority_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  filter(voter_sum > 200000) %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
+                                SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(any(vote_share > 0.5)) %>% 
+  ungroup()
+
+# Resultados eleitorais em municipios onde nao existe segundo turno
+unique_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  filter(voter_sum < 200000) %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
+                                SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(QT_VOTOS_NOMINAIS_VALIDOS %in% 
+  sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2])
+  ungroup()
+
+# Resultados eleitorais onde houve segundo turno
+second_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  filter(voter_sum > 200000) %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC DO B" ~ "PCDOB",
+                           SG_PARTIDO == "CIDADANIA" ~ "CID",
+                           SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                           SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                           SG_PARTIDO != "PC DO B" ~ SG_PARTIDO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(NR_TURNO == 2, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  ungroup()
+
+# Os casos de 100% surpreendem a primeira vista, mas e porque estou usando
+# apenas votos validos, e algumas candidaturas em segundo lugar sao
+# irregulares
+
+# 1. Dados ideologicos (ZUCCO, POWER, 2023) ----------------------------------
 load("raw_data/bls9_estimates_partiespresidents_long.RData")
 
 # Abrindo os dados com a mensuracao mais recente de cada partido
 long.table <- long.table %>% group_by(party.or.pres) %>% filter(year %in% max(year)) %>% 
   ungroup()
 
+## 2.1 Camaras municipais -----------------------------------------------------
 # Unindo com a base do CEPESP
 party_seats <- party_seats %>% 
   left_join(long.table %>% filter(year >= 2017), join_by(party == party.or.pres),
@@ -62,9 +142,9 @@ party_seats_mun <- party_seats %>% filter(!is.na(ideo)) %>%
 max(party_seats_mun$ideo_mean)
 min(party_seats_mun$ideo_mean)
 
-# 1.2 Unindo a base de coordenadas geograficas --------------------------------
+### 1.1.2 Unindo a base de coordenadas geograficas ---------------------------
 
-## Brasil --------------------------------------------------------------------
+### Brasil --------------------------------------------------------------------
 ideo_br <- read_municipality(year=2020) %>% 
   left_join(party_seats_mun, join_by(code_muni==city_ibge))
 
@@ -72,7 +152,7 @@ ggplot() +
   geom_sf(data=ideo_br, aes(fill=ideo_mean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-## Ceara ---------------------------------------------------------------------
+### Ceara ---------------------------------------------------------------------
 ideo_ce <- read_municipality(code_muni = 23, year=2020) %>% 
   left_join(party_seats_mun, join_by(code_muni==city_ibge))
 
@@ -80,7 +160,7 @@ ggplot() +
   geom_sf(data=ideo_ce, aes(fill=ideo_mean), color= NA, size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-## Paraiba -------------------------------------------------------------------
+### Paraiba -------------------------------------------------------------------
 ideo_pb <- read_municipality(code_muni = 25, year=2020) %>% 
   left_join(party_seats_mun, join_by(code_muni==city_ibge))
 
@@ -88,7 +168,7 @@ ggplot() +
   geom_sf(data=ideo_pb, aes(fill=ideo_mean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-# 2.1 Dados ideologicos (BOLOGNESI, RIBEIRO, CODATO, 2022) --------------------
+# 2. Dados ideologicos (BOLOGNESI, RIBEIRO, CODATO, 2022) ---------------------
 
 # Alguns partidos foram renomeados entre a aplicacao do survey e as eleicoes
 # de 2020
@@ -119,6 +199,7 @@ bolognesi.table <- data.frame(party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "
     ideob.mean > 7 & ideob.mean <= 8.5 ~ 2,
     ideob.mean >= 8.49 ~ 3))
 
+## 2.1 Camaras municipais ----------------------------------------------------
 # Unindo com a base de CEPESP
 party_seats.b <- party_seats %>% 
   left_join(bolognesi.table, join_by(party == party),
@@ -149,9 +230,9 @@ party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>%
   reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
           ideo.b = sum(party_seat_share * ideo.b / notna_seats))
 
-# 2.2 Unindo a base de coordenadas geograficas --------------------------------
+### 2.1.2 Unindo a base de coordenadas geograficas ----------------------------
 
-## Brasil ------------------------------------------------------------------
+### Brasil --------------------------------------------------------------------
 ideo.b_br <- read_municipality(year=2020) %>% 
   left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
 
@@ -173,7 +254,7 @@ ggplot() +
                        colours=c("red", "white", "blue"))
   #scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-## Ceara -------------------------------------------------------------------
+### Ceara -------------------------------------------------------------------
 ideo.b_ce <- read_municipality(code_muni = 23, year=2020) %>% 
   left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
 
@@ -182,7 +263,7 @@ ggplot() +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
 
-## Paraiba -------------------------------------------------------------------
+### Paraiba -------------------------------------------------------------------
 ideo.b_pb <- read_municipality(code_muni = 25, year=2020) %>% 
   left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
 
@@ -190,7 +271,7 @@ ggplot() +
   geom_sf(data=ideo.b_pb, aes(fill=ideob.mean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-## Pernambuco -----------------------------------------------------------------
+### Pernambuco -----------------------------------------------------------------
 ideo.b_pe <- read_municipality(code_muni = 26, year=2020) %>% 
   left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
 
@@ -198,9 +279,62 @@ ggplot() +
   geom_sf(data=ideo.b_pe, aes(fill=ideob.mean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-# 3. Correlacao entre os indices de ideologia ------------------------------
 
-## 3.1 A nivel de camaras municipais ---------------------------------------
+## 2.2 Prefeituras ----------------------------------------------------------
+# Unindo com a base do TSE
+second_round_winner.b <- second_round %>% 
+  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(vote_share == max(vote_share)) %>% 
+  ungroup()
+
+unique_round_winner.b <- unique_round %>% 
+  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(vote_share == max(vote_share)) %>% 
+  ungroup()
+
+majority_round_winner.b <- majority_round %>% 
+  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T) %>% 
+  group_by(CD_MUNICIPIO) %>% 
+  filter(vote_share == max(vote_share)) %>% 
+  ungroup()
+
+intersect(majority_round_winner.b$CD_MUNICIPIO, unique_round$CD_MUNICIPIO)
+intersect(majority_round_winner.b$CD_MUNICIPIO, second_round$CD_MUNICIPIO)
+intersect(unique_round$CD_MUNICIPIO, second_round$CD_MUNICIPIO)
+
+# Visualizacao de missings
+View(party_seats.b %>% filter(is.na(ideo.b)))
+
+# Gerando medias ideologicas para cada camara municipal
+party_seats.b_mun <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
+  group_by(city_ibge) %>% 
+  mutate(notna_seats = sum(party_seat_share)) %>% 
+  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
+          ideo.b = sum(party_seat_share * ideo.b / notna_seats),
+          UF = UF) %>% 
+  ungroup()
+
+# Estatisticas descritivas
+max(party_seats.b_mun$ideob.mean)
+min(party_seats.b_mun$ideob.mean)
+max(party_seats.b_mun$ideo.b)
+min(party_seats.b_mun$ideo.b)
+
+# Gerando medias ideologicas para cada estado
+party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
+  group_by(UF) %>% 
+  mutate(notna_seats = sum(party_seat_share)) %>% 
+  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
+          ideo.b = sum(party_seat_share * ideo.b / notna_seats))
+
+# 5. Correlacao entre os indices de ideologia ------------------------------
+
+## 5.1 A nivel de camaras municipais ---------------------------------------
 ideo.all_br <- ideo_br %>% 
   left_join(party_seats.b_mun, join_by(code_muni == city_ibge))
 
@@ -224,7 +358,7 @@ ggplot(ideo.all_br, aes(x=ideo_mean, y=ideo.b)) +
        y = "Bolognesi, Ribeiro e Codato (2022)")
   theme_minimal()
 
-## 3.2 A nivel de partidos --------------------------------------------------
+## 5.2 A nivel de partidos --------------------------------------------------
 all.table <- bolognesi.table %>%
   left_join(long.table %>% select(party.or.pres,ideo), join_by(party == party.or.pres))
 
