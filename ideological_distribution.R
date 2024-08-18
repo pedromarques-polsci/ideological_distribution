@@ -255,20 +255,20 @@ mayor_top.b <- rbind(
     mutate(may_vote_type = "first round majority") %>%
     left_join(bolognesi.table, join_by(SG_PARTIDO == party),
             copy = T)) %>% 
-  rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b)
-  
-# Selecionando vencedores e cruzando com dados legislativos
+  rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b,
+         mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
+         city_tse = CD_MUNICIPIO, may_vote_share = vote_share)
+
+# Selecionando o vencedor e cruzando com dados legislativos
 all_elect.b <- mayor_top.b %>% 
-  group_by(CD_MUNICIPIO) %>% 
-  filter(vote_share == max(vote_share)) %>% 
+  group_by(city_tse) %>% 
+  filter(may_vote_share == max(may_vote_share)) %>% 
   ungroup() %>% 
   left_join(party_seats.b_mun %>% select(city_tse, city_ibge, leg_party,
                                          leg_ideo.bmean, leg_ideo.b, UF),
-            join_by(CD_MUNICIPIO == city_tse)) %>% 
+            join_by(city_tse)) %>% 
   mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
          dist_ideo.b = abs(may_ideo.b - leg_ideo.b)) %>% 
-  rename(mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
-         city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
   select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
   relocate(UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
            leg_party)
@@ -296,7 +296,8 @@ ggplot() +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
 ggplot() +
-  labs(title = "Ideologia partidária dos prefeitos") +
+  labs(title = "Ideologia partidária dos prefeitos",
+       subtitle = "Paraíba") +
   geom_sf(data = 
             read_municipality(code_muni = 25, year=2020) %>% 
             left_join(all_elect.b, join_by(code_muni==city_ibge)), 
@@ -311,7 +312,8 @@ ggplot() +
 
 ggplot() +
   labs(title = "Distância ideológica partidária absoluta entre Executivo e 
-       Legislativo") +
+       Legislativo",
+       subtitle = "Paraíba") +
   geom_sf(data =
             read_municipality(code_muni = 25, year=2020) %>% 
             left_join(all_elect.b, join_by(code_muni==city_ibge)), 
@@ -332,6 +334,43 @@ ggplot() +
             left_join(all_elect_uf.b, join_by(abbrev_state==UF))
             , aes(fill=may_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
+
+
+# 4. Universo ----------------------------------------------------------------
+all_elect.b %>% filter(may_ideo.b >= 0) %>% View() # Controle
+all_elect.b %>% filter(may_ideo.b < 0) %>% View() # Tratamento
+
+# 4.1 Amostra por descontinuidade --------------------------------------------
+
+# Vitoria da esquerda sobre a direita/centro
+left_wins_right <- mayor_top.b %>% 
+  group_by(city_tse) %>% 
+  filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] < 0,
+         min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] >= 0) %>% 
+  ungroup()
+
+# Vitoria da direita/centro sobre a esquerda
+right_wins_left <- mayor_top.b %>% 
+  group_by(city_tse) %>% 
+  filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] >= 0,
+         min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] < 0) %>% 
+  ungroup()
+
+# Eleicoes disputadas (Close elections)
+
+# Tratamento: esquerda vence por uma margem pequena
+close_left_wins_right <- left_wins_right %>% 
+  group_by(city_tse) %>% 
+  filter(may_vote_share[which.max(may_vote_share)] <= 0.51,
+         may_vote_share[which.max(may_vote_share)] >= 0.49,
+         may_vote_share[which.min(may_vote_share)] >= 0.49)
+
+# Controle: esquerda perde por uma margem pequena
+close_right_wins_left <- right_wins_left %>% 
+  group_by(city_tse) %>% 
+  filter(may_vote_share[which.max(may_vote_share)] <= 0.51,
+         may_vote_share[which.max(may_vote_share)] >= 0.49,
+         may_vote_share[which.min(may_vote_share)] >= 0.49)
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
