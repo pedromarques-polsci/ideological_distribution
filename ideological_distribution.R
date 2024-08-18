@@ -213,7 +213,7 @@ party_seats.b <- party_seats %>%
 View(party_seats.b %>% filter(is.na(leg_ideo.b)))
 
 # Gerando medias ideologicas para cada camara municipal
-party_seats.b_mun <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>% 
+party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>% 
   group_by(city_ibge) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
@@ -224,10 +224,10 @@ party_seats.b_mun <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>%
               distinct(city_ibge, city_tse), join_by(city_ibge))
 
 # Estatisticas descritivas
-max(party_seats.b_mun$leg_ideo.bmean)
-min(party_seats.b_mun$leg_ideo.bmean)
-max(party_seats.b_mun$leg_ideo.b)
-min(party_seats.b_mun$leg_ideo.b)
+max(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
+min(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
+max(party_seats.b_mun$leg_ideo.b, na.rm = T)
+min(party_seats.b_mun$leg_ideo.b, na.rm = T)
 
 # Gerando medias ideologicas para cada estado
 party_seats.b_state <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>% 
@@ -263,16 +263,19 @@ all_elect.b <- mayor_top.b %>%
                                          leg_ideo.bmean, leg_ideo.b, UF),
             join_by(CD_MUNICIPIO == city_tse)) %>% 
   mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
-         dist_ideo.b = abs(may_ideo.b - leg_ideo.b))
+         dist_ideo.b = abs(may_ideo.b - leg_ideo.b)) %>% 
+  rename(mayor_party = SG_PARTIDO) %>% 
+  select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
+  relocate(UF)
 
 # Gerando medias ideologicas para cada estado
 all_elect_uf.b <- all_elect.b %>% 
   group_by(UF) %>% 
   select(-leg_ideo.bmean, -leg_ideo.b) %>% 
-  reframe(dist_ideo.bmean = mean(dist_ideo.bmean),
-          dist_ideo.b = mean(dist_ideo.b),
-          may_ideo.b = mean(may_ideo.b),
-          may_ideo.bmean = mean(may_ideo.bmean)) %>% 
+  reframe(dist_ideo.bmean = mean(dist_ideo.bmean, na.rm = T),
+          dist_ideo.b = mean(dist_ideo.b, na.rm = T),
+          may_ideo.b = mean(may_ideo.b, na.rm = T),
+          may_ideo.bmean = mean(may_ideo.bmean, na.rm = T)) %>% 
   ungroup() %>% 
   left_join(party_seats.b_state, join_by(UF))
 
