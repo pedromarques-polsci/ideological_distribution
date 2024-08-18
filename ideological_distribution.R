@@ -226,58 +226,8 @@ party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>%
           ideo.b = sum(party_seat_share * ideo.b / notna_seats)) %>% 
   ungroup()
 
-### 2.1.2 Unindo a base de coordenadas geograficas ----------------------------
-
-### Brasil --------------------------------------------------------------------
-ideo.b_br <- read_municipality(year=2020) %>% 
-  left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
-
-ggplot() +
-  geom_sf(data=ideo.b_br, aes(fill=ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-## A nivel de estado
-ideo.b_uf <- read_state(year=2020) %>% 
-  left_join(party_seats.b_state, join_by(abbrev_state==UF))
-
-ggplot() +
-  geom_sf(data=ideo.b_uf, aes(fill=ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-ggplot() +
-  geom_sf(data=ideo.b_uf, aes(fill=ideo.b), size=.15) +
-  scale_fill_gradientn(limits = c(-3, 3),
-                       colours=c("red", "white", "blue"))
-  #scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-### Ceara -------------------------------------------------------------------
-ideo.b_ce <- read_municipality(code_muni = 23, year=2020) %>% 
-  left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
-
-ggplot() +
-  geom_sf(data=ideo.b_ce, aes(fill=ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-
-### Paraiba -------------------------------------------------------------------
-ideo.b_pb <- read_municipality(code_muni = 25, year=2020) %>% 
-  left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
-
-ggplot() +
-  geom_sf(data=ideo.b_pb, aes(fill=ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-### Pernambuco -----------------------------------------------------------------
-ideo.b_pe <- read_municipality(code_muni = 26, year=2020) %>% 
-  left_join(party_seats.b_mun, join_by(code_muni==city_ibge))
-
-ggplot() +
-  geom_sf(data=ideo.b_pe, aes(fill=ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-
 ## 2.2 Prefeituras ----------------------------------------------------------
-# Unindo com a base do TSE
+# Unindo com a base de ideologia
 mayor_top.b <- rbind(
   second_round %>% 
   left_join(bolognesi.table, join_by(SG_PARTIDO == party),
@@ -296,10 +246,54 @@ mayor.b <- mayor_top.b %>%
   ungroup() %>% 
   rename(may_ideob.mean = ideob.mean,
          may_ideo.b = ideo.b) %>% 
-  left_join(party_seats.b_mun %>% select(city_tse, ideob.mean, ideo.b),
+  left_join(party_seats.b_mun %>% select(city_tse, city_ibge, 
+                                         ideob.mean, ideo.b, UF),
             join_by(CD_MUNICIPIO == city_tse)) %>% 
   rename(leg_ideob.mean = ideob.mean,
-         leg_ideo.b = ideo.b)
+         leg_ideo.b = ideo.b) %>% 
+  mutate(dist_ideob.mean = abs(may_ideob.mean - leg_ideob.mean),
+         dist_ideo.b = abs(may_ideo.b - leg_ideo.b))
+
+# Gerando medias ideologicas para cada estado
+mayor.b_uf <- mayor.b %>% 
+  group_by(UF) %>% 
+  select(-leg_ideob.mean, -leg_ideo.b) %>% 
+  reframe(dist_ideob.mean = mean(dist_ideob.mean),
+          dist_ideo.b = mean(dist_ideo.b),
+          may_ideo.b = mean(may_ideo.b),
+          may_ideob.mean = mean(may_ideob.mean)) %>% 
+  ungroup()
+
+
+## 2.3 Geolocalizacao --------------------------------------------------------
+### 2.3.1 Por municipio ------------------------------------------------------
+ideo.b_pb <- read_municipality(code_muni = 25, year=2020) %>% 
+  left_join(mayor.b, join_by(code_muni==city_ibge))
+
+ggplot() +
+  geom_sf(data=ideo.b_pb, aes(fill=leg_ideob.mean), size=.15) +
+  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
+
+ggplot() +
+  geom_sf(data=ideo.b_pb, aes(fill=may_ideob.mean), size=.15) +
+  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
+
+ggplot() +
+  geom_sf(data=ideo.b_pb, aes(fill=dist_ideob.mean), size=.15) +
+  scale_fill_gradientn(colors = c(low = "green", mid = "lightgrey", high = "darkred"))
+
+### 2.3.2 Por estado -------------------------------------------------------
+geo.b_uf <- read_state(code_state = "all", year=2020) %>% 
+  left_join(mayor.b_uf, join_by(abbrev_state==UF))
+
+ggplot() +
+  geom_sf(data=geo.b_uf, aes(fill=may_ideob.mean), size=.15) +
+  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
+
+ggplot() +
+  geom_sf(data=geo.b_uf, aes(fill=dist_ideob.mean), size=.15) +
+  scale_fill_gradientn(colors = c(low = "green", mid = "lightgrey", 
+                                  high = "darkred"))
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
