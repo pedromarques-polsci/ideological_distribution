@@ -93,6 +93,16 @@ second_round <- party_zone %>%
 # apenas votos validos, e algumas candidaturas em segundo lugar sao
 # irregulares
 
+# Exporting Data
+saveRDS(majority_round, "processed_data/majority_round.RDS")
+saveRDS(unique_round, "processed_data/unique_round.RDS")
+saveRDS(second_round, "processed_data/second_round.RDS")
+
+# Reading data
+majority_round <- read_rds("processed_data/majority_round.RDS")
+unique_round <- read_rds("processed_data/unique_round.RDS")
+second_round <- read_rds("processed_data/second_round.RDS")
+
 # 1. Dados ideologicos (ZUCCO, POWER, 2023) ----------------------------------
 load("raw_data/bls9_estimates_partiespresidents_long.RData")
 
