@@ -218,10 +218,13 @@ party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>%
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
           leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
-          UF = unique(UF)) %>% 
+          UF = unique(UF),
+          city_name = unique(city_name),
+          leg_party = paste(party, collapse = ", ")) %>% 
   ungroup() %>% 
   left_join(party_seats %>% select(city_tse, city_ibge) %>% 
-              distinct(city_ibge, city_tse), join_by(city_ibge))
+              distinct(city_ibge, city_tse), join_by(city_ibge)) %>% 
+  relocate(UF, city_ibge, city_tse, city_name, leg_party)
 
 # Estatisticas descritivas
 max(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
@@ -259,14 +262,16 @@ all_elect.b <- mayor_top.b %>%
   group_by(CD_MUNICIPIO) %>% 
   filter(vote_share == max(vote_share)) %>% 
   ungroup() %>% 
-  left_join(party_seats.b_mun %>% select(city_tse, city_ibge, 
+  left_join(party_seats.b_mun %>% select(city_tse, city_ibge, leg_party,
                                          leg_ideo.bmean, leg_ideo.b, UF),
             join_by(CD_MUNICIPIO == city_tse)) %>% 
   mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
          dist_ideo.b = abs(may_ideo.b - leg_ideo.b)) %>% 
-  rename(mayor_party = SG_PARTIDO) %>% 
+  rename(mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
+         city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
   select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
-  relocate(UF)
+  relocate(UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
+           leg_party)
 
 # Gerando medias ideologicas para cada estado
 all_elect_uf.b <- all_elect.b %>% 
@@ -277,7 +282,7 @@ all_elect_uf.b <- all_elect.b %>%
           may_ideo.b = mean(may_ideo.b, na.rm = T),
           may_ideo.bmean = mean(may_ideo.bmean, na.rm = T)) %>% 
   ungroup() %>% 
-  left_join(party_seats.b_state, join_by(UF))
+    left_join(party_seats.b_state, join_by(UF))
 
 ## 2.3 Geolocalizacao --------------------------------------------------------
 ### 2.3.1 Por municipio ------------------------------------------------------
@@ -291,11 +296,34 @@ ggplot() +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
 ggplot() +
+  labs(title = "Ideologia partidária dos prefeitos") +
+  geom_sf(data = 
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+          aes(fill=may_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(3, 8.5),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+ggplot() +
+  labs(title = "Distância ideológica partidária absoluta entre Executivo e 
+       Legislativo") +
   geom_sf(data =
             read_municipality(code_muni = 25, year=2020) %>% 
             left_join(all_elect.b, join_by(code_muni==city_ibge)), 
           aes(fill=dist_ideo.bmean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "green", mid = "lightgrey", high = "darkred"))
+  scale_fill_gradientn(name = "Distância Ideológica",
+                       colors = c(low = "white", mid = "lightgreen",
+                                  high = "brown4"),
+                       breaks = c(0, 3.38),
+                       labels = c("Convergência", "Divergência"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
 
 ### 2.3.2 Por estado -------------------------------------------------------
 ggplot() +
