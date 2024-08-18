@@ -110,7 +110,7 @@ load("raw_data/bls9_estimates_partiespresidents_long.RData")
 long.table <- long.table %>% group_by(party.or.pres) %>% filter(year %in% max(year)) %>% 
   ungroup()
 
-## 2.1 Camaras municipais -----------------------------------------------------
+## 1.1 Camaras municipais -----------------------------------------------------
 # Unindo com a base do CEPESP
 party_seats <- party_seats %>% 
   left_join(long.table %>% filter(year >= 2017), join_by(party == party.or.pres),
@@ -186,7 +186,7 @@ bolognesi.table <- data.frame(party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "
                      "UNIÃO"),
            
                      # Media dos posicionamentos
-                     ideob.mean = c(0.51, 0.61, 0.91, 1.28, 1.92, 2.97, 3.92,
+                     ideo.bmean = c(0.51, 0.61, 0.91, 1.28, 1.92, 2.97, 3.92,
                     4.05, 4.77, 4.92, 5.29, 6.1, 6.32,
                     6.5, 6.88, 6.9, 6.96, 7.01, 7.09, 7.11,
                     7.24, 7.27, 7.45, 7.47, 7.59, 7.78, 7.78,
@@ -194,116 +194,113 @@ bolognesi.table <- data.frame(party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "
                     (8.57+8.11)/2)) %>% 
   # Reescalamento
   mutate(ideo.b = case_when(
-    ideob.mean <= 1.5 ~ -3,
-    ideob.mean >= 1.51 & ideob.mean <= 3 ~ -2,
-    ideob.mean >= 3.01 & ideob.mean <= 4.49 ~ -1,
-    ideob.mean >= 4.5 & ideob.mean <= 5.5 ~ 0,
-    ideob.mean > 5.5 & ideob.mean < 7.01 ~ 1,
-    ideob.mean > 7 & ideob.mean <= 8.5 ~ 2,
-    ideob.mean >= 8.49 ~ 3))
+    ideo.bmean <= 1.5 ~ -3,
+    ideo.bmean >= 1.51 & ideo.bmean <= 3 ~ -2,
+    ideo.bmean >= 3.01 & ideo.bmean <= 4.49 ~ -1,
+    ideo.bmean >= 4.5 & ideo.bmean <= 5.5 ~ 0,
+    ideo.bmean > 5.5 & ideo.bmean < 7.01 ~ 1,
+    ideo.bmean > 7 & ideo.bmean <= 8.5 ~ 2,
+    ideo.bmean >= 8.49 ~ 3))
 
 ## 2.1 Camaras municipais ----------------------------------------------------
 # Unindo com a base de CEPESP
 party_seats.b <- party_seats %>% 
   left_join(bolognesi.table, join_by(party == party),
-            copy = T)
+            copy = T) %>% 
+  rename(leg_ideo.bmean = ideo.bmean, leg_ideo.b = ideo.b)
 
 # Visualizacao de missings
-View(party_seats.b %>% filter(is.na(ideo.b)))
+View(party_seats.b %>% filter(is.na(leg_ideo.b)))
 
 # Gerando medias ideologicas para cada camara municipal
-party_seats.b_mun <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
+party_seats.b_mun <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>% 
   group_by(city_ibge) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
-  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
-          ideo.b = sum(party_seat_share * ideo.b / notna_seats),
+  reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
+          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
           UF = unique(UF)) %>% 
   ungroup() %>% 
   left_join(party_seats %>% select(city_tse, city_ibge) %>% 
               distinct(city_ibge, city_tse), join_by(city_ibge))
 
 # Estatisticas descritivas
-max(party_seats.b_mun$ideob.mean)
-min(party_seats.b_mun$ideob.mean)
-max(party_seats.b_mun$ideo.b)
-min(party_seats.b_mun$ideo.b)
+max(party_seats.b_mun$leg_ideo.bmean)
+min(party_seats.b_mun$leg_ideo.bmean)
+max(party_seats.b_mun$leg_ideo.b)
+min(party_seats.b_mun$leg_ideo.b)
 
 # Gerando medias ideologicas para cada estado
-party_seats.b_state <- party_seats.b %>% filter(!is.na(ideo.b)) %>% 
+party_seats.b_state <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>% 
   group_by(UF) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
-  reframe(ideob.mean = sum(party_seat_share * ideob.mean / notna_seats),
-          ideo.b = sum(party_seat_share * ideo.b / notna_seats)) %>% 
+  reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
+          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats)) %>% 
   ungroup()
 
 ## 2.2 Prefeituras ----------------------------------------------------------
 # Unindo com a base de ideologia
 mayor_top.b <- rbind(
   second_round %>% 
-  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+    mutate(may_vote_type = "second round plurality") %>% 
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
             copy = T), 
   unique_round %>% 
-  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+    mutate(may_vote_type = "first round plurality") %>%
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
             copy = T), 
   majority_round %>% 
-  left_join(bolognesi.table, join_by(SG_PARTIDO == party),
-            copy = T))
-
-# Gerando medias ideologicas para cada prefeitura
-mayor.b <- mayor_top.b %>% 
+    mutate(may_vote_type = "first round majority") %>%
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+            copy = T)) %>% 
+  rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b)
+  
+# Selecionando vencedores e cruzando com dados legislativos
+all_elect.b <- mayor_top.b %>% 
   group_by(CD_MUNICIPIO) %>% 
   filter(vote_share == max(vote_share)) %>% 
   ungroup() %>% 
-  rename(may_ideob.mean = ideob.mean,
-         may_ideo.b = ideo.b) %>% 
   left_join(party_seats.b_mun %>% select(city_tse, city_ibge, 
-                                         ideob.mean, ideo.b, UF),
+                                         leg_ideo.bmean, leg_ideo.b, UF),
             join_by(CD_MUNICIPIO == city_tse)) %>% 
-  rename(leg_ideob.mean = ideob.mean,
-         leg_ideo.b = ideo.b) %>% 
-  mutate(dist_ideob.mean = abs(may_ideob.mean - leg_ideob.mean),
+  mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
          dist_ideo.b = abs(may_ideo.b - leg_ideo.b))
 
 # Gerando medias ideologicas para cada estado
-mayor.b_uf <- mayor.b %>% 
+all_elect_uf.b <- all_elect.b %>% 
   group_by(UF) %>% 
-  select(-leg_ideob.mean, -leg_ideo.b) %>% 
-  reframe(dist_ideob.mean = mean(dist_ideob.mean),
+  select(-leg_ideo.bmean, -leg_ideo.b) %>% 
+  reframe(dist_ideo.bmean = mean(dist_ideo.bmean),
           dist_ideo.b = mean(dist_ideo.b),
           may_ideo.b = mean(may_ideo.b),
-          may_ideob.mean = mean(may_ideob.mean)) %>% 
-  ungroup()
-
+          may_ideo.bmean = mean(may_ideo.bmean)) %>% 
+  ungroup() %>% 
+  left_join(party_seats.b_state, join_by(UF))
 
 ## 2.3 Geolocalizacao --------------------------------------------------------
 ### 2.3.1 Por municipio ------------------------------------------------------
-ideo.b_pb <- read_municipality(code_muni = 25, year=2020) %>% 
-  left_join(mayor.b, join_by(code_muni==city_ibge))
 
+# Paraiba
 ggplot() +
-  geom_sf(data=ideo.b_pb, aes(fill=leg_ideob.mean), size=.15) +
+  geom_sf(data = 
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+          aes(fill=leg_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
 ggplot() +
-  geom_sf(data=ideo.b_pb, aes(fill=may_ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-ggplot() +
-  geom_sf(data=ideo.b_pb, aes(fill=dist_ideob.mean), size=.15) +
+  geom_sf(data =
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+          aes(fill=dist_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "green", mid = "lightgrey", high = "darkred"))
 
 ### 2.3.2 Por estado -------------------------------------------------------
-geo.b_uf <- read_state(code_state = "all", year=2020) %>% 
-  left_join(mayor.b_uf, join_by(abbrev_state==UF))
-
 ggplot() +
-  geom_sf(data=geo.b_uf, aes(fill=may_ideob.mean), size=.15) +
+  geom_sf(data = 
+            read_state(code_state = "all", year=2020) %>% 
+            left_join(all_elect_uf.b, join_by(abbrev_state==UF))
+            , aes(fill=may_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
-
-ggplot() +
-  geom_sf(data=geo.b_uf, aes(fill=dist_ideob.mean), size=.15) +
-  scale_fill_gradientn(colors = c(low = "green", mid = "lightgrey", 
-                                  high = "darkred"))
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
