@@ -210,7 +210,7 @@ party_seats.b <- party_seats %>%
   rename(leg_ideo.bmean = ideo.bmean, leg_ideo.b = ideo.b)
 
 # Visualizacao de missings
-View(party_seats.b %>% filter(is.na(leg_ideo.b)))
+# View(party_seats.b %>% filter(is.na(leg_ideo.b)))
 
 # Gerando medias ideologicas para cada camara municipal
 party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>% 
@@ -244,7 +244,7 @@ party_seats.b_state <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>%
 # Unindo com a base de ideologia
 mayor_top.b <- rbind(
   second_round %>% 
-    mutate(may_vote_type = "second round plurality") %>% 
+    mutate(may_vote_type = "second round majority") %>% 
     left_join(bolognesi.table, join_by(SG_PARTIDO == party),
             copy = T), 
   unique_round %>% 
@@ -257,14 +257,16 @@ mayor_top.b <- rbind(
             copy = T)) %>% 
   rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b,
          mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
-         city_tse = CD_MUNICIPIO, may_vote_share = vote_share)
+         city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
+  left_join(party_seats.b_mun %>% select(city_ibge, city_tse),
+            join_by(city_tse))
 
 # Selecionando o vencedor e cruzando com dados legislativos
 all_elect.b <- mayor_top.b %>% 
   group_by(city_tse) %>% 
   filter(may_vote_share == max(may_vote_share)) %>% 
   ungroup() %>% 
-  left_join(party_seats.b_mun %>% select(city_tse, city_ibge, leg_party,
+  left_join(party_seats.b_mun %>% select(city_tse, leg_party,
                                          leg_ideo.bmean, leg_ideo.b, UF),
             join_by(city_tse)) %>% 
   mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
@@ -336,11 +338,13 @@ ggplot() +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
 
-# 4. Universo ----------------------------------------------------------------
+# 4. RDD --------------------------------------------------------------------
+
+# Universo
 all_elect.b %>% filter(may_ideo.b >= 0) %>% View() # Controle
 all_elect.b %>% filter(may_ideo.b < 0) %>% View() # Tratamento
 
-# 4.1 Amostra por descontinuidade --------------------------------------------
+## 4.1 Amostra quase-experimental --------------------------------------------
 
 # Vitoria da esquerda sobre a direita/centro
 left_wins_right <- mayor_top.b %>% 
@@ -359,18 +363,90 @@ right_wins_left <- mayor_top.b %>%
 # Eleicoes disputadas (Close elections)
 
 # Tratamento: esquerda vence por uma margem pequena
-close_left_wins_right <- left_wins_right %>% 
-  group_by(city_tse) %>% 
-  filter(may_vote_share[which.max(may_vote_share)] <= 0.51,
-         may_vote_share[which.max(may_vote_share)] >= 0.49,
-         may_vote_share[which.min(may_vote_share)] >= 0.49)
+close_left_wins_right <- left_wins_right %>%
+  group_by(city_tse) %>%
+  filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
+         may_vote_share[which.min(may_vote_share)] >= 0.40,
+         may_vote_share == max(may_vote_share)) %>%
+  ungroup()
 
 # Controle: esquerda perde por uma margem pequena
-close_right_wins_left <- right_wins_left %>% 
-  group_by(city_tse) %>% 
-  filter(may_vote_share[which.max(may_vote_share)] <= 0.51,
-         may_vote_share[which.max(may_vote_share)] >= 0.49,
-         may_vote_share[which.min(may_vote_share)] >= 0.49)
+close_right_wins_left <- right_wins_left %>%
+  group_by(city_tse) %>%
+  filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
+         may_vote_share[which.min(may_vote_share)] >= 0.40,
+         may_vote_share == max(may_vote_share)) %>%
+  ungroup() %>% 
+  mutate(may_vote_share = 1 - may_vote_share)
+
+close_election <- rbind(close_left_wins_right,
+                        close_right_wins_left)
+
+## 4.2 Variavel dependente -------------------------------------------------
+ideb_2023.in <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
+                           range = cell_rows(10:14507), na = "-")
+
+teste <- close_election %>% 
+  left_join(ideb_2023.in %>% filter(REDE == "Municipal") %>% 
+              select(CO_MUNICIPIO, VL_OBSERVADO_2021, VL_OBSERVADO_2023),
+            join_by(city_ibge == CO_MUNICIPIO))
+
+if(require(rddtools) == F) install.packages('rddtools'); require(rddtools)
+if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
+
+teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
+  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023)) + 
+  geom_point() +
+  geom_vline(xintercept = 0.5, color = "red", size = 1, linetype = "dashed")
+
+teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
+  select(may_vote_share, VL_OBSERVADO_2023) %>%
+  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
+  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023)) +
+  geom_point(aes(color = threshold)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Accent") +
+  guides(color = FALSE) +
+  geom_vline(xintercept = 0.5, color = "red",
+             size = 1, linetype = "dashed")
+
+teste %>% filter(may_vote_share >= 0.490, may_vote_share <= 0.510) %>% 
+  select(may_vote_share, VL_OBSERVADO_2023) %>%
+  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
+  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023, color = threshold)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_brewer(palette = "Accent") +
+  guides(color = FALSE) +
+  geom_vline(xintercept = 0.5, color = "red",
+             size = 1, linetype = "dashed")
+
+teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
+  select(may_vote_share, VL_OBSERVADO_2023) %>%
+  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
+  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023, color = threshold)) +
+  geom_point() +
+  geom_smooth(method = "lm",
+              formula = y ~ x + I(x ^ 3),
+              se = FALSE) +
+  scale_color_brewer(palette = "Accent") +
+  guides(color = FALSE) +
+  geom_vline(xintercept = 0.5, color = "red",
+             size = 1, linetype = "dashed")
+
+rdd <- teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51)
+
+rdd_data(y = rdd$VL_OBSERVADO_2023, 
+         x = rdd$may_vote_share, 
+         cutpoint = 0.5) %>% 
+  rdd_reg_lm(slope = "separate") %>% 
+  summary()
+
+rdd_data(y = rdd$VL_OBSERVADO_2023, 
+         x = rdd$may_vote_share, 
+         cutpoint = 0.5) %>% 
+  rdd_reg_lm(slope = "separate", order = 3) %>% 
+  summary()
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
