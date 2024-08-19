@@ -11,7 +11,8 @@ if(require(stringr) == F) install.packages('stringr'); require(stringr)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 
 # Resultados eleitorais CEPESP -----------------------------------------------
-party_seats <- read_xlsx("raw_data/party_seats_2020.xlsx") %>% 
+
+party_seats_2020 <- read_xlsx("raw_data/party_seats_2020.xlsx") %>% 
   rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
          disp_seats = 10, party_seat_share = 12) %>%
   mutate(party = case_when(party == "PC DO B" ~ "PCDOB",
@@ -19,38 +20,91 @@ party_seats <- read_xlsx("raw_data/party_seats_2020.xlsx") %>%
                            party == "SOLIDARIEDADE" ~ "SD",
                            party == "REPUBLICANOS" ~ "REP",
                            party != "PC DO B" ~ party)) %>% 
-  mutate(city_ibge = as.numeric(city_ibge))
+  mutate(city_ibge = as.numeric(city_ibge),
+         city_tse = str_pad(city_tse, width = 5, pad = "0")) %>% 
+  select(-2, -7, -9, -11)
+
+tse_ibge <- party_seats_2020 %>% 
+  distinct(city_tse, city_ibge) %>% 
+  select(city_tse, city_ibge)
+
+party_seats_2016 <- read.csv2("raw_data/party_seats_2016.csv", sep = ",") %>% 
+  rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
+         disp_seats = 10, party_seat_share = 12) %>%
+  mutate(party = case_when(party == "PC DO B" ~ "PCDOB",
+                           party == "CIDADANIA" ~ "CID",
+                           party == "SOLIDARIEDADE" ~ "SD",
+                           party == "REPUBLICANOS" ~ "REP",
+                           party != "PC DO B" ~ party)) %>% 
+  mutate(city_ibge = as.numeric(city_ibge),
+         city_tse = str_pad(city_tse, width = 5, pad = "0")) %>% 
+  select(-2, -7, -9, -11)
+
+party_seats <- rbind(party_seats_2016, party_seats_2020)
 
 # Resultados eleitorais TSE ---------------------------------------------------
-voter <- elections_tse(year = 2020, type = "voter_profile") %>% 
+voter <- rbind(elections_tse(year = 2016, type = "voter_profile") %>% 
   group_by(CD_MUNICIPIO) %>% 
   reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
           NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
   mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
-         CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"))
+         CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"),
+         elec_year = 2016),
+  elections_tse(year = 2020, type = "voter_profile") %>% 
+    group_by(CD_MUNICIPIO) %>% 
+    reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
+            NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
+    mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
+           CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"),
+           elec_year = 2020))
 
-party_zone <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
+# Exporting Data
+saveRDS(voter, "processed_data/voter.RDS")
+
+# Reading Data
+voter <- readRDS("processed_data/voter.RDS")
+
+party_zone_2020 <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
   mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
                                 SG_PARTIDO == "CIDADANIA" ~ "CID",
                                 SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
                                 SG_PARTIDO == "REPUBLICANOS" ~ "REP",
-                                SG_PARTIDO != "PC do B" ~ SG_PARTIDO))
+                                SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
+  select(-23:-26, -31, -32, -33, -35, -36)
+  
+party_zone_2016 <- elections_tse(year = 2016, type = "party_mun_zone", uf = "all") %>% 
+    mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
+                                  SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                  SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                  SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                  SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
+  select(-28) %>% rename(QT_VOTOS_NOMINAIS_VALIDOS = 27)
+
+party_zone <- rbind(party_zone_2020, party_zone_2016)
+
+# Exporting Data
+saveRDS(party_zone, "processed_data/party_zone.RDS")
+
+# Reading Data
+party_zone <- readRDS("processed_data/party_zone.RDS")
 
 # Resultados eleitorais em municipios onde ha segundo turno, porem o vencedor
 # obteve maioria
 majority_round <- party_zone %>% 
-  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
   filter(voter_sum > 200000) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
   group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
   reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
-          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
-  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
   mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   filter(any(vote_share > 0.5),
          QT_VOTOS_NOMINAIS_VALIDOS %in% 
            sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
@@ -58,34 +112,38 @@ majority_round <- party_zone %>%
 
 # Resultados eleitorais em municipios onde nao existe segundo turno
 unique_round <- party_zone %>% 
-  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
   filter(voter_sum < 200000) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
-  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
   reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
-          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
-  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
   mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   filter(QT_VOTOS_NOMINAIS_VALIDOS %in% 
   sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
   ungroup()
 
 # Resultados eleitorais onde houve segundo turno
 second_round <- party_zone %>% 
-  left_join(voter %>% select(voter_sum, CD_MUNICIPIO), join_by(CD_MUNICIPIO)) %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
   filter(voter_sum > 200000) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   filter(NR_TURNO == 2, CD_CARGO == 11) %>% 
-  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
   reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
-          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% 
-  group_by(CD_MUNICIPIO) %>% 
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
   mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
-  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
   mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
   ungroup()
 
@@ -214,17 +272,17 @@ party_seats.b <- party_seats %>%
 
 # Gerando medias ideologicas para cada camara municipal
 party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>% 
-  group_by(city_ibge) %>% 
+  group_by(city_ibge, elec_year) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
           leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
           UF = unique(UF),
           city_name = unique(city_name),
-          leg_party = paste(party, collapse = ", ")) %>% 
+          leg_party = paste(party, collapse = ", "),
+          elec_year = unique(elec_year), city_ibge = unique(city_ibge),
+          city_tse = unique(city_tse)) %>% 
   ungroup() %>% 
-  left_join(party_seats %>% select(city_tse, city_ibge) %>% 
-              distinct(city_ibge, city_tse), join_by(city_ibge)) %>% 
-  relocate(UF, city_ibge, city_tse, city_name, leg_party)
+  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party)
 
 # Estatisticas descritivas
 max(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
@@ -234,10 +292,11 @@ min(party_seats.b_mun$leg_ideo.b, na.rm = T)
 
 # Gerando medias ideologicas para cada estado
 party_seats.b_state <- party_seats.b %>% filter(!is.na(leg_ideo.b)) %>% 
-  group_by(UF) %>% 
+  group_by(UF, elec_year) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
-          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats)) %>% 
+          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
+          elec_year = unique(elec_year)) %>% 
   ungroup()
 
 ## 2.2 Prefeituras ----------------------------------------------------------
@@ -254,37 +313,37 @@ mayor_top.b <- rbind(
   majority_round %>% 
     mutate(may_vote_type = "first round majority") %>%
     left_join(bolognesi.table, join_by(SG_PARTIDO == party),
-            copy = T)) %>% 
+            copy = T)) %>%
   rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b,
          mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
          city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
-  left_join(party_seats.b_mun %>% select(city_ibge, city_tse),
-            join_by(city_tse))
+  left_join(tse_ibge, join_by(city_tse))
 
 # Selecionando o vencedor e cruzando com dados legislativos
 all_elect.b <- mayor_top.b %>% 
-  group_by(city_tse) %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
   filter(may_vote_share == max(may_vote_share)) %>% 
   ungroup() %>% 
-  left_join(party_seats.b_mun %>% select(city_tse, leg_party,
+  left_join(party_seats.b_mun %>% select(city_tse, leg_party, elec_year,
                                          leg_ideo.bmean, leg_ideo.b, UF),
-            join_by(city_tse)) %>% 
+            join_by(city_tse, ANO_ELEICAO == elec_year)) %>% 
   mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
          dist_ideo.b = abs(may_ideo.b - leg_ideo.b)) %>% 
   select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
-  relocate(UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
+  relocate(ANO_ELEICAO, UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
            leg_party)
 
 # Gerando medias ideologicas para cada estado
 all_elect_uf.b <- all_elect.b %>% 
-  group_by(UF) %>% 
+  group_by(UF, ANO_ELEICAO) %>% 
   select(-leg_ideo.bmean, -leg_ideo.b) %>% 
   reframe(dist_ideo.bmean = mean(dist_ideo.bmean, na.rm = T),
           dist_ideo.b = mean(dist_ideo.b, na.rm = T),
           may_ideo.b = mean(may_ideo.b, na.rm = T),
-          may_ideo.bmean = mean(may_ideo.bmean, na.rm = T)) %>% 
+          may_ideo.bmean = mean(may_ideo.bmean, na.rm = T),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
   ungroup() %>% 
-    left_join(party_seats.b_state, join_by(UF))
+    left_join(party_seats.b_state, join_by(UF, ANO_ELEICAO == elec_year))
 
 ## 2.3 Geolocalizacao --------------------------------------------------------
 ### 2.3.1 Por municipio ------------------------------------------------------
@@ -293,7 +352,8 @@ all_elect_uf.b <- all_elect.b %>%
 ggplot() +
   geom_sf(data = 
             read_municipality(code_muni = 25, year=2020) %>% 
-            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020),
+                      join_by(code_muni==city_ibge)), 
           aes(fill=leg_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
@@ -302,7 +362,8 @@ ggplot() +
        subtitle = "Paraíba") +
   geom_sf(data = 
             read_municipality(code_muni = 25, year=2020) %>% 
-            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
           aes(fill=may_ideo.bmean), size=.15) +
   scale_fill_gradientn(name = "Ideologia Partidária",
                        colors = c(low = "red", mid = "white", high = "blue"),
@@ -318,7 +379,8 @@ ggplot() +
        subtitle = "Paraíba") +
   geom_sf(data =
             read_municipality(code_muni = 25, year=2020) %>% 
-            left_join(all_elect.b, join_by(code_muni==city_ibge)), 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020)
+                      , join_by(code_muni==city_ibge)), 
           aes(fill=dist_ideo.bmean), size=.15) +
   scale_fill_gradientn(name = "Distância Ideológica",
                        colors = c(low = "white", mid = "lightgreen",
@@ -342,85 +404,134 @@ ggplot() +
 
 ## 4.1 Amostra quase-experimental --------------------------------------------
 
+# Selecionando municipios que nao eram expostos ao tratamento antes de 2020
+pre_treatment_selection <- mayor_top.b %>%
+  filter(may_vote_share == max(may_vote_share), ANO_ELEICAO == 2016, 
+         may_ideo.b > -1) %>% 
+  distinct(city_tse, city_name, city_ibge, may_ideo.b)
+
 # Vitoria da esquerda sobre a direita/centro
 left_wins_right <- mayor_top.b %>% 
-  group_by(city_tse) %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
   filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] < 0,
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] >= 0) %>% 
-  ungroup()
+  ungroup() %>% 
+  filter(ANO_ELEICAO == 2020)
+
+# city_tse %in% pre_treatment_selection$city_tse
+# Restringir a amostra a apenas casos em que a esquerda nao estava no poder em 2020
+# reduz o N a pouquíssimos casos
 
 # Vitoria da direita/centro sobre a esquerda
 right_wins_left <- mayor_top.b %>% 
-  group_by(city_tse) %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
   filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] >= 0,
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] < 0) %>% 
-  ungroup()
-
-# Eleicoes competitivas: o segundo colocado obteve muitos votos
-
-# Tratamento: esquerda vence uma direita competitiva
-left_wins_right <- left_wins_right %>%
-  group_by(city_tse) %>%
-  filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
-         may_vote_share[which.min(may_vote_share)] >= 0.40,
-         may_vote_share == max(may_vote_share)) %>%
-  ungroup()
-
-# Controle: direita vence uma esquerda competitiva
-right_wins_left <- right_wins_left %>%
-  group_by(city_tse) %>%
-  filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
-         may_vote_share[which.min(may_vote_share)] >= 0.40,
-         may_vote_share == max(may_vote_share)) %>%
   ungroup() %>% 
-  mutate(may_vote_share = 1 - may_vote_share)
+  filter(ANO_ELEICAO == 2020)
 
-competitive_election <- rbind(left_wins_right,
-                        right_wins_left)
+# Base de dados unica: todos os resultados abaixo do cutoff sao derrotas da
+# esquerda e vice-verse
+
+competitive_election <- rbind(
+  left_wins_right %>% # Caso 1: a esquerda venceu na maioria
+    group_by(city_tse, ANO_ELEICAO) %>%
+    filter(may_vote_share == max(may_vote_share),
+           may_vote_share[which.max(may_vote_share)] >= 0.50,
+    ) %>% ungroup() %>% mutate(elecr = "won"),
+  left_wins_right %>% # Caso 2: a esquerda venceu na pluralidade
+    group_by(city_tse, ANO_ELEICAO) %>%
+    filter(may_vote_share == max(may_vote_share),
+           may_vote_share[which.max(may_vote_share)] < 0.50,
+    ) %>%
+    # A substracao permite reaproveitar close elections em que a esquerda venceu
+    # com pluralidade
+    mutate(may_vote_share = 1 - may_vote_share) %>%
+    ungroup() %>% mutate(elecr = "won"),
+  right_wins_left <- right_wins_left %>% # Caso 3: a esquerda perdeu
+    group_by(city_tse, ANO_ELEICAO) %>%
+    filter(may_vote_share == min(may_vote_share),
+    ) %>%
+    ungroup()  %>% mutate(elecr = "lost")
+)
+
+#may_vote_share[which.max(may_vote_share)] >= 0.50,
 
 ## 4.2 Variavel dependente -------------------------------------------------
+# didc <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
+#                            range = cell_rows(10:14507), na = "-") %>% 
+#   filter(REDE == "Municipal") %>% 
+#   select(CO_MUNICIPIO, VL_OBSERVADO_2019, VL_OBSERVADO_2021, VL_OBSERVADO_2023) %>% 
+#   left_join(competitive_election, join_by(CO_MUNICIPIO == city_ibge)) %>% 
+#   mutate(diff = VL_OBSERVADO_2023 - VL_OBSERVADO_2019) %>% 
+#   select(-VL_OBSERVADO_2019, -VL_OBSERVADO_2021, -VL_OBSERVADO_2023) %>% 
+#   filter(!is.na(city_tse), may_vote_share >= 0.46, may_vote_share <= 0.54)
+  
 ideb_2023.in <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
-                           range = cell_rows(10:14507), na = "-")
+                           range = cell_rows(10:14507), na = "-") %>% 
+  filter(REDE == "Municipal") %>% 
+  select(CO_MUNICIPIO, VL_OBSERVADO_2019, VL_OBSERVADO_2021, VL_OBSERVADO_2023) %>% 
+  pivot_longer(cols = c(VL_OBSERVADO_2019, VL_OBSERVADO_2021,VL_OBSERVADO_2023), 
+               values_to = 'ideb',
+               names_to = 'year')
 
-teste <- competitive_election %>% 
-  left_join(ideb_2023.in %>% filter(REDE == "Municipal") %>% 
-              select(CO_MUNICIPIO, VL_OBSERVADO_2021, VL_OBSERVADO_2023),
-            join_by(city_ibge == CO_MUNICIPIO))
+rdd <- ideb_2023.in %>% 
+  left_join(competitive_election, join_by(CO_MUNICIPIO == city_ibge)) %>% 
+  filter(year == "VL_OBSERVADO_2023", may_vote_share >= 0.46, 
+         may_vote_share <= 0.54)
 
 if(require(rddtools) == F) install.packages('rddtools'); require(rddtools)
 if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
 
-teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
-  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023)) + 
+rdd %>%
+  ggplot(aes(x = may_vote_share, y = ideb)) + 
   geom_point() +
-  geom_vline(xintercept = 0.5, color = "red", size = 1, linetype = "dashed")
+  geom_vline(xintercept = 0.5, color = "red", size = 1, linetype = "dashed") +
+  labs(y = 'IDEB', x = 'Votos na esquerda')
 
-teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
-  select(may_vote_share, VL_OBSERVADO_2023) %>%
+rdd %>%
+  select(may_vote_share, ideb) %>%
   mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023)) +
+  ggplot(aes(x = may_vote_share, y = ideb)) +
   geom_point(aes(color = threshold)) +
   geom_smooth(method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Accent") +
   guides(color = FALSE) +
   geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed")
+             size = 1, linetype = "dashed") +
+  labs(y = 'IDEB', x = 'Votos na esquerda')
 
-teste %>% filter(may_vote_share >= 0.490, may_vote_share <= 0.510) %>% 
-  select(may_vote_share, VL_OBSERVADO_2023) %>%
+
+rdd %>%
+  select(may_vote_share, ideb) %>%
   mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023, color = threshold)) +
+  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
   scale_color_brewer(palette = "Accent") +
   guides(color = FALSE) +
   geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed")
+             size = 1, linetype = "dashed") +
+  labs(y = 'IDEB', x = 'Votos na esquerda')
 
-teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>% 
-  select(may_vote_share, VL_OBSERVADO_2023) %>%
+rdd %>% 
+  select(may_vote_share, ideb) %>%
   mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = VL_OBSERVADO_2023, color = threshold)) +
+  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
+  geom_point() +
+  geom_smooth(method = "lm",
+              formula = y ~ x + I(x ^ 2),
+              se = FALSE) +
+  scale_color_brewer(palette = "Accent") +
+  guides(color = FALSE) +
+  geom_vline(xintercept = 0.5, color = "red",
+             size = 1, linetype = "dashed") +
+  labs(y = 'IDEB', x = 'Votos na esquerda')
+
+rdd %>% 
+  select(may_vote_share, ideb) %>%
+  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
+  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
   geom_point() +
   geom_smooth(method = "lm",
               formula = y ~ x + I(x ^ 3),
@@ -428,17 +539,22 @@ teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51) %>%
   scale_color_brewer(palette = "Accent") +
   guides(color = FALSE) +
   geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed")
+             size = 1, linetype = "dashed") +
+  labs(y = 'IDEB', x = 'Votos na esquerda')
 
-rdd <- teste %>% filter(may_vote_share >= 0.49, may_vote_share <= 0.51)
-
-rdd_data(y = rdd$VL_OBSERVADO_2023, 
+rdd_data(y = rdd$ideb, 
          x = rdd$may_vote_share, 
          cutpoint = 0.5) %>% 
-  rdd_reg_lm(slope = "separate") %>% 
+  rdd_reg_lm(slope = "separate", order = 1) %>% 
   summary()
 
-rdd_data(y = rdd$VL_OBSERVADO_2023, 
+rdd_data(y = rdd$ideb, 
+         x = rdd$may_vote_share, 
+         cutpoint = 0.5) %>% 
+  rdd_reg_lm(slope = "separate", order = 2) %>% 
+  summary()
+
+rdd_data(y = rdd$ideb, 
          x = rdd$may_vote_share, 
          cutpoint = 0.5) %>% 
   rdd_reg_lm(slope = "separate", order = 3) %>% 
