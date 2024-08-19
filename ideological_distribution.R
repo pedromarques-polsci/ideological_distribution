@@ -340,10 +340,6 @@ ggplot() +
 
 # 4. RDD --------------------------------------------------------------------
 
-# Universo
-all_elect.b %>% filter(may_ideo.b >= 0) %>% View() # Controle
-all_elect.b %>% filter(may_ideo.b < 0) %>% View() # Tratamento
-
 ## 4.1 Amostra quase-experimental --------------------------------------------
 
 # Vitoria da esquerda sobre a direita/centro
@@ -360,18 +356,18 @@ right_wins_left <- mayor_top.b %>%
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] < 0) %>% 
   ungroup()
 
-# Eleicoes disputadas (Close elections)
+# Eleicoes competitivas: o segundo colocado obteve muitos votos
 
-# Tratamento: esquerda vence por uma margem pequena
-close_left_wins_right <- left_wins_right %>%
+# Tratamento: esquerda vence uma direita competitiva
+left_wins_right <- left_wins_right %>%
   group_by(city_tse) %>%
   filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
          may_vote_share[which.min(may_vote_share)] >= 0.40,
          may_vote_share == max(may_vote_share)) %>%
   ungroup()
 
-# Controle: esquerda perde por uma margem pequena
-close_right_wins_left <- right_wins_left %>%
+# Controle: direita vence uma esquerda competitiva
+right_wins_left <- right_wins_left %>%
   group_by(city_tse) %>%
   filter(may_vote_share[which.max(may_vote_share)] >= 0.50,
          may_vote_share[which.min(may_vote_share)] >= 0.40,
@@ -379,14 +375,14 @@ close_right_wins_left <- right_wins_left %>%
   ungroup() %>% 
   mutate(may_vote_share = 1 - may_vote_share)
 
-close_election <- rbind(close_left_wins_right,
-                        close_right_wins_left)
+competitive_election <- rbind(left_wins_right,
+                        right_wins_left)
 
 ## 4.2 Variavel dependente -------------------------------------------------
 ideb_2023.in <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
                            range = cell_rows(10:14507), na = "-")
 
-teste <- close_election %>% 
+teste <- competitive_election %>% 
   left_join(ideb_2023.in %>% filter(REDE == "Municipal") %>% 
               select(CO_MUNICIPIO, VL_OBSERVADO_2021, VL_OBSERVADO_2023),
             join_by(city_ibge == CO_MUNICIPIO))
