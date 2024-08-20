@@ -5,13 +5,15 @@ if(require(geobr) == F) install.packages('geobr'); require(geobr)
 if(require(ggplot2) == F) install.packages('ggplot2'); require(ggplot2)
 if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
 if(require(haven) == F) install.packages('haven'); require(haven)
+if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
 if(require(readxl) == F) install.packages('readxl'); require(readxl)
+if(require(rdrobust) == F) install.packages('rdrobust'); require(rdrobust)
+if(require(rddtools) == F) install.packages('rddtools'); require(rddtools)
 if(require(sf) == F) install.packages('sf'); require(sf)
 if(require(stringr) == F) install.packages('stringr'); require(stringr)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 
 # Resultados eleitorais CEPESP -----------------------------------------------
-
 party_seats_2020 <- read_xlsx("raw_data/party_seats_2020.xlsx") %>% 
   rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
          disp_seats = 10, party_seat_share = 12) %>%
@@ -42,6 +44,10 @@ party_seats_2016 <- read.csv2("raw_data/party_seats_2016.csv", sep = ",") %>%
 
 party_seats <- rbind(party_seats_2016, party_seats_2020)
 
+# Exporting data
+saveRDS(tse_ibge, "processed_data/tse_ibge.RDS")
+saveRDS(party_seats, "processed_data/party_seats.RDS")
+
 # Resultados eleitorais TSE ---------------------------------------------------
 voter <- rbind(elections_tse(year = 2016, type = "voter_profile") %>% 
   group_by(CD_MUNICIPIO) %>% 
@@ -60,9 +66,6 @@ voter <- rbind(elections_tse(year = 2016, type = "voter_profile") %>%
 
 # Exporting Data
 saveRDS(voter, "processed_data/voter.RDS")
-
-# Reading Data
-voter <- readRDS("processed_data/voter.RDS")
 
 party_zone_2020 <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
   mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
@@ -84,9 +87,6 @@ party_zone <- rbind(party_zone_2020, party_zone_2016)
 
 # Exporting Data
 saveRDS(party_zone, "processed_data/party_zone.RDS")
-
-# Reading Data
-party_zone <- readRDS("processed_data/party_zone.RDS")
 
 # Resultados eleitorais em municipios onde ha segundo turno, porem o vencedor
 # obteve maioria
@@ -156,7 +156,12 @@ saveRDS(majority_round, "processed_data/majority_round.RDS")
 saveRDS(unique_round, "processed_data/unique_round.RDS")
 saveRDS(second_round, "processed_data/second_round.RDS")
 
-# Reading data
+
+## Loading data ------------------------------------------------------------
+tse_ibge <- readRDS("processed_data/tse_ibge.RDS")
+party_seats <- readRDS("processed_data/party_seats.RDS")
+voter <- readRDS("processed_data/voter.RDS")
+party_zone <- readRDS("processed_data/party_zone.RDS")
 majority_round <- read_rds("processed_data/majority_round.RDS")
 unique_round <- read_rds("processed_data/unique_round.RDS")
 second_round <- read_rds("processed_data/second_round.RDS")
@@ -345,6 +350,14 @@ all_elect_uf.b <- all_elect.b %>%
   ungroup() %>% 
     left_join(party_seats.b_state, join_by(UF, ANO_ELEICAO == elec_year))
 
+# Exporting data
+saveRDS(all_elect.b, "processed_data/all_elect_b.RDS")
+saveRDS(mayor_top.b, "processed_data/mayor_top_b.RDS")
+
+## Loading data ------------------------------------------------------------
+all_elect.b <- readRDS("processed_data/all_elect_b.RDS")
+mayor_top.b <- readRDS("processed_data/mayor_top_b.RDS")
+
 ## 2.3 Geolocalizacao --------------------------------------------------------
 ### 2.3.1 Por municipio ------------------------------------------------------
 
@@ -401,14 +414,14 @@ ggplot() +
 
 
 # 4. RDD --------------------------------------------------------------------
+mayor_top.b <- readRDS("processed_data/mayor_top_b")
 
 ## 4.1 Amostra quase-experimental --------------------------------------------
-
-# Selecionando municipios que nao eram expostos ao tratamento antes de 2020
-pre_treatment_selection <- mayor_top.b %>%
-  filter(may_vote_share == max(may_vote_share), ANO_ELEICAO == 2016, 
-         may_ideo.b > -1) %>% 
-  distinct(city_tse, city_name, city_ibge, may_ideo.b)
+# Municipios nao governados pela esquerda em 2016
+non_treated_mun <- mayor_top.b %>% 
+  group_by(city_tse) %>% 
+  filter(ANO_ELEICAO == 2016, may_vote_share == max(may_vote_share),
+         may_ideo.b > -1)
 
 # Vitoria da esquerda sobre a direita/centro
 left_wins_right <- mayor_top.b %>% 
@@ -416,11 +429,7 @@ left_wins_right <- mayor_top.b %>%
   filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] < 0,
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] >= 0) %>% 
   ungroup() %>% 
-  filter(ANO_ELEICAO == 2020)
-
-# city_tse %in% pre_treatment_selection$city_tse
-# Restringir a amostra a apenas casos em que a esquerda nao estava no poder em 2020
-# reduz o N a pouquíssimos casos
+  filter(ANO_ELEICAO == 2020, city_tse %in% unique(non_treated_mun$city_tse))
 
 # Vitoria da direita/centro sobre a esquerda
 right_wins_left <- mayor_top.b %>% 
@@ -432,7 +441,6 @@ right_wins_left <- mayor_top.b %>%
 
 # Base de dados unica: todos os resultados abaixo do cutoff sao derrotas da
 # esquerda e vice-verse
-
 competitive_election <- rbind(
   left_wins_right %>% # Caso 1: a esquerda venceu na maioria
     group_by(city_tse, ANO_ELEICAO) %>%
@@ -455,18 +463,27 @@ competitive_election <- rbind(
     ungroup()  %>% mutate(elecr = "lost")
 )
 
-#may_vote_share[which.max(may_vote_share)] >= 0.50,
+competitive_election_nlp <- rbind(
+  left_wins_right %>% # Caso 1: a esquerda venceu na maioria
+    group_by(city_tse, ANO_ELEICAO) %>%
+    filter(may_vote_share == max(may_vote_share),
+           may_vote_share[which.max(may_vote_share)] >= 0.50,
+    ) %>% ungroup() %>% mutate(elecr = "won"),
+  right_wins_left <- right_wins_left %>% # Caso 3: a esquerda perdeu
+    group_by(city_tse, ANO_ELEICAO) %>%
+    filter(may_vote_share == min(may_vote_share),
+    ) %>%
+    ungroup()  %>% mutate(elecr = "lost")
+)
+
+# Exporting data
+saveRDS(competitive_election, "processed_data/competitive_election.RDS")
 
 ## 4.2 Variavel dependente -------------------------------------------------
-# didc <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
-#                            range = cell_rows(10:14507), na = "-") %>% 
-#   filter(REDE == "Municipal") %>% 
-#   select(CO_MUNICIPIO, VL_OBSERVADO_2019, VL_OBSERVADO_2021, VL_OBSERVADO_2023) %>% 
-#   left_join(competitive_election, join_by(CO_MUNICIPIO == city_ibge)) %>% 
-#   mutate(diff = VL_OBSERVADO_2023 - VL_OBSERVADO_2019) %>% 
-#   select(-VL_OBSERVADO_2019, -VL_OBSERVADO_2021, -VL_OBSERVADO_2023) %>% 
-#   filter(!is.na(city_tse), may_vote_share >= 0.46, may_vote_share <= 0.54)
-  
+
+# Loading data
+competitive_election <- readRDS("processed_data/competitive_election.RDS")
+
 ideb_2023.in <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xlsx", 
                            range = cell_rows(10:14507), na = "-") %>% 
   filter(REDE == "Municipal") %>% 
@@ -475,90 +492,56 @@ ideb_2023.in <- read_excel("raw_data/divulgacao_anos_iniciais_municipios_2023.xl
                values_to = 'ideb',
                names_to = 'year')
 
-rdd <- ideb_2023.in %>% 
-  left_join(competitive_election, join_by(CO_MUNICIPIO == city_ibge)) %>% 
-  filter(year == "VL_OBSERVADO_2023", may_vote_share >= 0.46, 
-         may_vote_share <= 0.54)
+## 4.3 Testes de Hipotese ----------------------------------------------------
+rdd <- competitive_election %>% 
+  left_join(ideb_2023.in, join_by(city_ibge == CO_MUNICIPIO)) %>% 
+  left_join(all_elect.b %>% select(ANO_ELEICAO, city_tse, leg_ideo.bmean, 
+                                   dist_ideo.bmean),
+            join_by(city_tse, ANO_ELEICAO)) %>% 
+  filter(year %in% c("VL_OBSERVADO_2023"))
 
-if(require(rddtools) == F) install.packages('rddtools'); require(rddtools)
-if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
+rdd_nlp <- competitive_election_nlp %>% 
+  left_join(ideb_2023.in, join_by(city_ibge == CO_MUNICIPIO)) %>% 
+  left_join(all_elect.b %>% select(ANO_ELEICAO, city_tse, leg_ideo.bmean, 
+                                   dist_ideo.bmean),
+            join_by(city_tse, ANO_ELEICAO)) %>% 
+  filter(year %in% c("VL_OBSERVADO_2023"))
 
-rdd %>%
-  ggplot(aes(x = may_vote_share, y = ideb)) + 
-  geom_point() +
-  geom_vline(xintercept = 0.5, color = "red", size = 1, linetype = "dashed") +
-  labs(y = 'IDEB', x = 'Votos na esquerda')
+rdrobust(y = rdd$ideb, x = rdd$may_vote_share,
+         c = 0.5, p = 1) %>% summary()
 
-rdd %>%
-  select(may_vote_share, ideb) %>%
-  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = ideb)) +
-  geom_point(aes(color = threshold)) +
-  geom_smooth(method = "lm", se = FALSE) +
-  scale_color_brewer(palette = "Accent") +
-  guides(color = FALSE) +
-  geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed") +
-  labs(y = 'IDEB', x = 'Votos na esquerda')
+rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share,
+         c = 0.5, p = 1) %>% summary()
 
+rdrobust(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+         p = 2) %>% summary()
 
-rdd %>%
-  select(may_vote_share, ideb) %>%
-  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE) +
-  scale_color_brewer(palette = "Accent") +
-  guides(color = FALSE) +
-  geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed") +
-  labs(y = 'IDEB', x = 'Votos na esquerda')
+rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5,
+         p = 2) %>% summary()
 
-rdd %>% 
-  select(may_vote_share, ideb) %>%
-  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
-  geom_point() +
-  geom_smooth(method = "lm",
-              formula = y ~ x + I(x ^ 2),
-              se = FALSE) +
-  scale_color_brewer(palette = "Accent") +
-  guides(color = FALSE) +
-  geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed") +
-  labs(y = 'IDEB', x = 'Votos na esquerda')
+rdrobust(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+         p = 3) %>% summary()
 
-rdd %>% 
-  select(may_vote_share, ideb) %>%
-  mutate(threshold = as.factor(ifelse(may_vote_share >= 0.5, 1, 0))) %>%
-  ggplot(aes(x = may_vote_share, y = ideb, color = threshold)) +
-  geom_point() +
-  geom_smooth(method = "lm",
-              formula = y ~ x + I(x ^ 3),
-              se = FALSE) +
-  scale_color_brewer(palette = "Accent") +
-  guides(color = FALSE) +
-  geom_vline(xintercept = 0.5, color = "red",
-             size = 1, linetype = "dashed") +
-  labs(y = 'IDEB', x = 'Votos na esquerda')
+rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5,
+         p = 3) %>% summary()
 
-rdd_data(y = rdd$ideb, 
-         x = rdd$may_vote_share, 
-         cutpoint = 0.5) %>% 
-  rdd_reg_lm(slope = "separate", order = 1) %>% 
-  summary()
+rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5, 
+       p = 1, h = 0.045, x.lim = c(0.5-0.045,0.5+0.045),
+       x.label = "Performance eleitoral da esquerda",
+       y.label = "IDEB (2023)", 
+       title = "Efeito Médio de Tratamento Local")
 
-rdd_data(y = rdd$ideb, 
-         x = rdd$may_vote_share, 
-         cutpoint = 0.5) %>% 
-  rdd_reg_lm(slope = "separate", order = 2) %>% 
-  summary()
+rdplot(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5, 
+       p = 1, h = 0.043, x.lim = c(0.5-0.043,0.5+0.043),
+       x.label = "Performance eleitoral da esquerda",
+       y.label = "IDEB (2023)", 
+       title = "Efeito Médio de Tratamento Local")
 
-rdd_data(y = rdd$ideb, 
-         x = rdd$may_vote_share, 
-         cutpoint = 0.5) %>% 
-  rdd_reg_lm(slope = "separate", order = 3) %>% 
-  summary()
+rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+       p = 2, h = 0.134, x.lim = c(0.5-0.134, 0.5+0.134))
+
+rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+       p = 3, h = 0.163, x.lim = c(0.5-0.163, 0.5+0.163))
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
