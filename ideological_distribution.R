@@ -240,21 +240,30 @@ ggplot() +
 # PPS -> CIDADANIA (CID)
 # PR -> PL
 
+# Alguns partidos mudaram de nome antes da aplicação do survey
+# PMDB -> PMB
+# PTN -> Podemos
+# PSDC -> DC
+# PEN -> PATRI / Patriota (ha contreversias)
+# PT do B -> Avante
+
 # Gerando os dados de ideologia partidaria (p. 7-8, Tabela 1)
-bolognesi.table <- data.frame(party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "PT", "PDT",
-                     "PSB", "REDE", "CID", "PV", "PTB", "AVANTE",
-                     "SD", "PMN", "PMB", "PHS", "MDB", "PSD", "PSDB",
-                     "PODE", "PPL", "PRTB", "PROS", "PRP", "REP", "PL",
-                     "PTC", "DC", "PSL", "NOVO", "PP", "PSC", "PATRIOTA", "DEM",
-                     "UNIÃO"),
+
+bolognesi.table <- data.frame(
+  party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "PT", "PDT",
+            "PSB", "REDE", "CID", "PPS", "PV", "PTB", "AVANTE", "PT do B",
+            "SD", "PMN", "PMB", "PHS", "MDB", "PMDB", "PSD", "PSDB",
+            "PODE", "PTN", "PPL", "PRTB", "PROS", "PRP", "REP", "PRB", "PL", "PR",
+            "PTC", "DC", "PSDC", "PSL", "NOVO", "PP", "PSC", "PATRIOTA", "PEN", "PATRI", 
+            "DEM", "UNIÃO"),
            
                      # Media dos posicionamentos
                      ideo.bmean = c(0.51, 0.61, 0.91, 1.28, 1.92, 2.97, 3.92,
-                    4.05, 4.77, 4.92, 5.29, 6.1, 6.32,
-                    6.5, 6.88, 6.9, 6.96, 7.01, 7.09, 7.11,
-                    7.24, 7.27, 7.45, 7.47, 7.59, 7.78, 7.78,
-                    7.86, 8.11, 8.11, 8.13, 8.20, 8.33, 8.55, 8.57,
-                    (8.57+8.11)/2)) %>% 
+                    4.05, 4.77, 4.92, 4.92, 5.29, 6.1, 6.32, 6.32,
+                    6.5, 6.88, 6.9, 6.96, 7.01, 7.01, 7.09, 7.11,
+                    7.24, 7.24, 7.27, 7.45, 7.47, 7.59, 7.78, 7.78, 7.78, 7.78,
+                    7.86, 8.11, 8.11, 8.11, 8.13, 8.20, 8.33, 8.55, 8.55, 8.55, 
+                    8.57, (8.57+8.11)/2)) %>% 
   # Reescalamento
   mutate(ideo.b = case_when(
     ideo.bmean <= 1.5 ~ -3,
@@ -414,7 +423,7 @@ ggplot() +
 
 
 # 4. RDD --------------------------------------------------------------------
-mayor_top.b <- readRDS("processed_data/mayor_top_b")
+mayor_top.b <- readRDS("processed_data/mayor_top_b.RDS")
 
 ## 4.1 Amostra quase-experimental --------------------------------------------
 # Municipios nao governados pela esquerda em 2016
@@ -428,53 +437,33 @@ left_wins_right <- mayor_top.b %>%
   group_by(city_tse, ANO_ELEICAO) %>% 
   filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] < 0,
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] >= 0) %>% 
-  ungroup() %>% 
-  filter(ANO_ELEICAO == 2020, city_tse %in% unique(non_treated_mun$city_tse))
+  mutate(left_vote_share = 
+           max(may_vote_share)/(max(may_vote_share)+min(may_vote_share)),
+         right_vote_share = 
+           min(may_vote_share)/(max(may_vote_share)+min(may_vote_share))) %>% 
+  ungroup() %>% filter(ANO_ELEICAO == 2020) %>% 
+  filter(city_tse %in% unique(non_treated_mun$city_tse))
 
 # Vitoria da direita/centro sobre a esquerda
 right_wins_left <- mayor_top.b %>% 
   group_by(city_tse, ANO_ELEICAO) %>% 
   filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] >= 0,
          min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] < 0) %>% 
-  ungroup() %>% 
-  filter(ANO_ELEICAO == 2020)
+  mutate(left_vote_share = 
+           min(may_vote_share)/(max(may_vote_share)+min(may_vote_share)),
+         right_vote_share = 
+           max(may_vote_share)/(max(may_vote_share)+min(may_vote_share))) %>% 
+  ungroup() %>% filter(ANO_ELEICAO == 2020) 
+#%>% filter(city_tse %in% unique(non_treated_mun$city_tse))
 
 # Base de dados unica: todos os resultados abaixo do cutoff sao derrotas da
 # esquerda e vice-verse
-competitive_election <- rbind(
-  left_wins_right %>% # Caso 1: a esquerda venceu na maioria
-    group_by(city_tse, ANO_ELEICAO) %>%
-    filter(may_vote_share == max(may_vote_share),
-           may_vote_share[which.max(may_vote_share)] >= 0.50,
-    ) %>% ungroup() %>% mutate(elecr = "won"),
-  left_wins_right %>% # Caso 2: a esquerda venceu na pluralidade
-    group_by(city_tse, ANO_ELEICAO) %>%
-    filter(may_vote_share == max(may_vote_share),
-           may_vote_share[which.max(may_vote_share)] < 0.50,
-    ) %>%
-    # A substracao permite reaproveitar close elections em que a esquerda venceu
-    # com pluralidade
-    mutate(may_vote_share = 1 - may_vote_share) %>%
-    ungroup() %>% mutate(elecr = "won"),
-  right_wins_left <- right_wins_left %>% # Caso 3: a esquerda perdeu
-    group_by(city_tse, ANO_ELEICAO) %>%
-    filter(may_vote_share == min(may_vote_share),
-    ) %>%
-    ungroup()  %>% mutate(elecr = "lost")
-)
-
-competitive_election_nlp <- rbind(
-  left_wins_right %>% # Caso 1: a esquerda venceu na maioria
-    group_by(city_tse, ANO_ELEICAO) %>%
-    filter(may_vote_share == max(may_vote_share),
-           may_vote_share[which.max(may_vote_share)] >= 0.50,
-    ) %>% ungroup() %>% mutate(elecr = "won"),
-  right_wins_left <- right_wins_left %>% # Caso 3: a esquerda perdeu
-    group_by(city_tse, ANO_ELEICAO) %>%
-    filter(may_vote_share == min(may_vote_share),
-    ) %>%
-    ungroup()  %>% mutate(elecr = "lost")
-)
+competitive_election <- rbind(left_wins_right %>% 
+                                group_by(city_tse) %>% 
+                                filter(may_vote_share == max(may_vote_share)), 
+                              right_wins_left %>% 
+                                group_by(city_tse) %>% 
+                                filter(may_vote_share == max(may_vote_share)))
 
 # Exporting data
 saveRDS(competitive_election, "processed_data/competitive_election.RDS")
@@ -500,48 +489,20 @@ rdd <- competitive_election %>%
             join_by(city_tse, ANO_ELEICAO)) %>% 
   filter(year %in% c("VL_OBSERVADO_2023"))
 
-rdd_nlp <- competitive_election_nlp %>% 
-  left_join(ideb_2023.in, join_by(city_ibge == CO_MUNICIPIO)) %>% 
-  left_join(all_elect.b %>% select(ANO_ELEICAO, city_tse, leg_ideo.bmean, 
-                                   dist_ideo.bmean),
-            join_by(city_tse, ANO_ELEICAO)) %>% 
-  filter(year %in% c("VL_OBSERVADO_2023"))
-
-rdrobust(y = rdd$ideb, x = rdd$may_vote_share,
+rdrobust(y = rdd$ideb, x = rdd$left_vote_share,
          c = 0.5, p = 1) %>% summary()
 
-rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share,
-         c = 0.5, p = 1) %>% summary()
-
-rdrobust(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+rdrobust(y = rdd$ideb, x = rdd$left_vote_share, c = 0.5,
          p = 2) %>% summary()
 
-rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5,
-         p = 2) %>% summary()
-
-rdrobust(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
+rdrobust(y = rdd$ideb, x = rdd$left_vote_share, c = 0.5,
          p = 3) %>% summary()
 
-rdrobust(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5,
-         p = 3) %>% summary()
-
-rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5, 
-       p = 1, h = 0.045, x.lim = c(0.5-0.045,0.5+0.045),
+rdplot(y = rdd$ideb, x = rdd$left_vote_share, c = 0.5, 
+       p = 1, h = 0.044, x.lim = c(0.5-0.044,0.5+0.044),
        x.label = "Performance eleitoral da esquerda",
        y.label = "IDEB (2023)", 
        title = "Efeito Médio de Tratamento Local")
-
-rdplot(y = rdd_nlp$ideb, x = rdd_nlp$may_vote_share, c = 0.5, 
-       p = 1, h = 0.043, x.lim = c(0.5-0.043,0.5+0.043),
-       x.label = "Performance eleitoral da esquerda",
-       y.label = "IDEB (2023)", 
-       title = "Efeito Médio de Tratamento Local")
-
-rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
-       p = 2, h = 0.134, x.lim = c(0.5-0.134, 0.5+0.134))
-
-rdplot(y = rdd$ideb, x = rdd$may_vote_share, c = 0.5,
-       p = 3, h = 0.163, x.lim = c(0.5-0.163, 0.5+0.163))
 
 # 5. Correlacao entre os indices de ideologia ------------------------------
 
