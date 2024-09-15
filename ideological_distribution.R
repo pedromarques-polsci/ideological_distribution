@@ -379,11 +379,29 @@ ggplot() +
           aes(fill=leg_ideo.bmean), size=.15) +
   scale_fill_gradientn(colors = c(low = "red", mid = "white", high = "blue"))
 
-ggplot() +
+pb <- ggplot() +
   labs(title = "Ideologia partidária dos prefeitos",
-       subtitle = "Paraíba") +
+       subtitle = "Paraíba (2020)") +
   geom_sf(data = 
             read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=may_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(3, 8.5),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+ggsave('pb.png', dpi = 300, height = 5, width = 10, unit = 'in', pb)
+
+ggplot() +
+  labs(title = "Ideologia partidária dos prefeitos",
+       subtitle = "Pernambuco") +
+  geom_sf(data = 
+            read_municipality(code_muni = 26, year=2020) %>% 
             left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
                       join_by(code_muni==city_ibge)), 
           aes(fill=may_ideo.bmean), size=.15) +
