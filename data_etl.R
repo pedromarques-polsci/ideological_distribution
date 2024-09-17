@@ -1,0 +1,468 @@
+# Pacotes -----------------------------------------------------------------
+if(require(electionsBR) == F) install.packages('electionsBR'); require(electionsBR)
+if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
+if(require(geobr) == F) install.packages('geobr'); require(geobr)
+if(require(ggplot2) == F) install.packages('ggplot2'); require(ggplot2)
+if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
+if(require(haven) == F) install.packages('haven'); require(haven)
+if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
+if(require(readxl) == F) install.packages('readxl'); require(readxl)
+if(require(sf) == F) install.packages('sf'); require(sf)
+if(require(stringr) == F) install.packages('stringr'); require(stringr)
+if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
+
+# 1. DADOS ELEITORAIS --------------------------------------------------------
+## 1.1 Resultados eleitorais CEPESP ------------------------------------------
+party_seats_2020 <- read_xlsx("raw_data/party_seats_2020.xlsx") %>% 
+  rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
+         disp_seats = 10, party_seat_share = 12) %>%
+  mutate(party = case_when(party == "PC DO B" ~ "PCDOB",
+                           party == "CIDADANIA" ~ "CID",
+                           party == "SOLIDARIEDADE" ~ "SD",
+                           party == "REPUBLICANOS" ~ "REP",
+                           party != "PC DO B" ~ party)) %>% 
+  mutate(city_ibge = as.numeric(city_ibge),
+         city_tse = str_pad(city_tse, width = 5, pad = "0")) %>% 
+  select(-2, -7, -9, -11)
+
+tse_ibge <- party_seats_2020 %>% 
+  distinct(city_tse, city_ibge) %>% 
+  select(city_tse, city_ibge)
+
+party_seats_2016 <- read.csv2("raw_data/party_seats_2016.csv", sep = ",") %>% 
+  rename(elec_year = 1, city_tse = 4, city_ibge = 5, city_name = 6, party = 8, 
+         disp_seats = 10, party_seat_share = 12) %>%
+  mutate(party = case_when(party == "PC DO B" ~ "PCDOB",
+                           party == "CIDADANIA" ~ "CID",
+                           party == "SOLIDARIEDADE" ~ "SD",
+                           party == "REPUBLICANOS" ~ "REP",
+                           party != "PC DO B" ~ party)) %>% 
+  mutate(city_ibge = as.numeric(city_ibge),
+         city_tse = str_pad(city_tse, width = 5, pad = "0")) %>% 
+  select(-2, -7, -9, -11)
+
+party_seats <- rbind(party_seats_2016, party_seats_2020)
+
+# Exporting data
+saveRDS(tse_ibge, "processed_data/tse_ibge.RDS")
+saveRDS(party_seats, "processed_data/party_seats.RDS")
+
+## 1.2 Eleitores -------------------------------------------------------------
+voter <- rbind(elections_tse(year = 2016, type = "voter_profile") %>% 
+                 group_by(CD_MUNICIPIO) %>% 
+                 reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
+                         NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
+                 mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
+                        CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"),
+                        elec_year = 2016),
+               elections_tse(year = 2020, type = "voter_profile") %>% 
+                 group_by(CD_MUNICIPIO) %>% 
+                 reframe(voter_sum = sum(QT_ELEITORES_PERFIL),
+                         NM_MUNICIPIO = unique(NM_MUNICIPIO)) %>% ungroup() %>% 
+                 mutate(CD_MUNICIPIO = as.character(CD_MUNICIPIO),
+                        CD_MUNICIPIO = str_pad(CD_MUNICIPIO, width = 5, pad = "0"),
+                        elec_year = 2020))
+
+# Exporting Data
+saveRDS(voter, "processed_data/voter.RDS")
+
+## 1.3 Resultados eleitorais -----------------------------------------------
+party_zone_2020 <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
+                                SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
+  select(-23:-26, -31, -32, -33, -35, -36)
+
+party_zone_2016 <- elections_tse(year = 2016, type = "party_mun_zone", uf = "all") %>% 
+  mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
+                                SG_PARTIDO == "CIDADANIA" ~ "CID",
+                                SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
+                                SG_PARTIDO == "REPUBLICANOS" ~ "REP",
+                                SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
+  select(-28) %>% rename(QT_VOTOS_NOMINAIS_VALIDOS = 27)
+
+party_zone <- rbind(party_zone_2020, party_zone_2016)
+
+# Exporting Data
+saveRDS(party_zone, "processed_data/party_zone.RDS")
+
+# Maioria em primeiro turno entre cidades onde ha segundo turno
+majority_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
+  filter(voter_sum > 200000) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(any(vote_share > 0.5),
+         QT_VOTOS_NOMINAIS_VALIDOS %in% 
+           sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
+  ungroup()
+
+# Cidades sem segundo turno
+unique_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
+  filter(voter_sum < 200000) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(QT_VOTOS_NOMINAIS_VALIDOS %in% 
+           sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
+  ungroup()
+
+# Vitoria no segundo turno
+second_round <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
+  filter(voter_sum > 200000) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(NR_TURNO == 2, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  ungroup()
+
+# Os casos de 100% surpreendem a primeira vista, mas e porque estou usando
+# apenas votos validos, e algumas candidaturas em segundo lugar sao
+# irregulares
+
+# Exporting Data
+saveRDS(majority_round, "processed_data/majority_round.RDS")
+saveRDS(unique_round, "processed_data/unique_round.RDS")
+saveRDS(second_round, "processed_data/second_round.RDS")
+
+## Loading data ------------------------------------------------------------
+tse_ibge <- readRDS("processed_data/tse_ibge.RDS")
+party_seats <- readRDS("processed_data/party_seats.RDS")
+voter <- readRDS("processed_data/voter.RDS")
+party_zone <- readRDS("processed_data/party_zone.RDS")
+majority_round <- read_rds("processed_data/majority_round.RDS")
+unique_round <- read_rds("processed_data/unique_round.RDS")
+second_round <- read_rds("processed_data/second_round.RDS")
+
+# 2. IDEOLOGIA (BOLOGNESI, RIBEIRO, CODATO, 2022) ---------------------
+
+# Alguns partidos foram renomeados entre a aplicacao do survey e as eleicoes
+# de 2020
+# PRB -> REPUBLICANOS (REP)
+# PPS -> CIDADANIA (CID)
+# PR -> PL
+
+# Alguns partidos mudaram de nome antes da aplicação do survey
+# PMDB -> PMB
+# PTN -> Podemos
+# PSDC -> DC
+# PEN -> PATRI / Patriota (ha contreversias)
+# PT do B -> Avante
+
+# UNIAO BRASIL = fusao entre DEM e PSL em 2021
+
+# Gerando os dados de ideologia partidaria (p. 7-8, Tabela 1)
+bolognesi.table <- data.frame(
+  party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "PT", "PDT",
+            "PSB", "REDE", "CID", "PPS", "PV", "PTB", 
+            "AVANTE", "PT do B", "PT DO B",
+            "SD", "PMN", "PMB", "PHS", "MDB", "PMDB", "PSD", "PSDB",
+            "PODE", "PTN", "PPL", "PRTB", "PROS", "PRP", "REP", "PRB", "PL", "PR",
+            "PTC", "DC", "PSDC", "PSL", "NOVO", "PP", "PSC", "PATRIOTA", "PEN", 
+            "PATRI", "DEM", "UNIÃO"),
+  
+  # Media dos posicionamentos
+  ideo.bmean = c(0.51, 0.61, 0.91, 1.28, 1.92, 2.97, 3.92,
+                 4.05, 4.77, 4.92, 4.92, 5.29, 6.1, 
+                 6.32, 6.32, 6.32,
+                 6.5, 6.88, 6.9, 6.96, 7.01, 7.01, 7.09, 7.11,
+                 7.24, 7.24, 7.27, 7.45, 7.47, 7.59, 7.78, 7.78, 7.78, 7.78,
+                 7.86, 8.11, 8.11, 8.11, 8.13, 8.20, 8.33, 8.55, 8.55, 
+                 8.55, 8.57, (8.57+8.11)/2)) %>% 
+  # Reescalamento
+  mutate(ideo.b = case_when(
+    ideo.bmean <= 1.5 ~ -3,
+    ideo.bmean >= 1.51 & ideo.bmean <= 3 ~ -2,
+    ideo.bmean >= 3.01 & ideo.bmean <= 4.49 ~ -1,
+    ideo.bmean >= 4.5 & ideo.bmean <= 5.5 ~ 0,
+    ideo.bmean > 5.5 & ideo.bmean < 7.01 ~ 1,
+    ideo.bmean > 7 & ideo.bmean <= 8.5 ~ 2,
+    ideo.bmean >= 8.49 ~ 3))
+
+## 2.1 Camaras municipais ----------------------------------------------------
+# Unindo com a base de CEPESP
+party_seats.b <- party_seats %>% 
+  left_join(bolognesi.table, join_by(party == party),
+            copy = T) %>% 
+  rename(leg_ideo.bmean = ideo.bmean, leg_ideo.b = ideo.b)
+
+# Visualizacao de missings
+View(party_seats.b %>% filter(is.na(leg_ideo.b)))
+
+# Gerando medias ideologicas para cada camara municipal
+party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>% 
+  group_by(city_ibge, elec_year) %>% 
+  mutate(notna_seats = sum(party_seat_share)) %>% 
+  reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
+          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
+          UF = unique(UF),
+          city_name = unique(city_name),
+          leg_party = paste(party, collapse = ", "),
+          elec_year = unique(elec_year), city_ibge = unique(city_ibge),
+          city_tse = unique(city_tse)) %>% 
+  ungroup() %>% 
+  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party)
+
+# Estatisticas descritivas
+max(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
+min(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
+max(party_seats.b_mun$leg_ideo.b, na.rm = T)
+min(party_seats.b_mun$leg_ideo.b, na.rm = T)
+
+## 2.2 Prefeituras ----------------------------------------------------------
+# Unindo com a base de ideologia
+mayor_top.b <- rbind(
+  second_round %>% 
+    mutate(may_vote_type = "second round majority") %>% 
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+              copy = T), 
+  unique_round %>% 
+    mutate(may_vote_type = "first round plurality") %>%
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+              copy = T), 
+  majority_round %>% 
+    mutate(may_vote_type = "first round majority") %>%
+    left_join(bolognesi.table, join_by(SG_PARTIDO == party),
+              copy = T)) %>%
+  rename(may_ideo.bmean = ideo.bmean, may_ideo.b = ideo.b,
+         mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
+         city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
+  left_join(tse_ibge, join_by(city_tse))
+
+# Desempatando
+mayor_top.b <- subset(mayor_top.b, !(city_ibge == 2303303 & ANO_ELEICAO == 2016
+                                     & mayor_party == "PMB"))
+
+mayor_top.b <- subset(mayor_top.b, !(city_ibge == 2504074 & ANO_ELEICAO == 2020
+                                     & mayor_party == "MDB"))
+
+mayor_top.b <- subset(mayor_top.b, !(city_ibge == 4113106 & ANO_ELEICAO == 2020
+                                     & mayor_party == "PSD"))
+
+mayor_top.b <- subset(mayor_top.b, !(city_ibge == 4208955 & ANO_ELEICAO == 2020
+                                     & mayor_party == "PT"))
+
+# Selecionando o vencedor e cruzando com dados legislativos
+all_elect.b <- mayor_top.b %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
+  filter(may_vote_share == max(may_vote_share)) %>% 
+  ungroup() %>% 
+  left_join(party_seats.b_mun %>% select(city_tse, leg_party, elec_year,
+                                         leg_ideo.bmean, leg_ideo.b, UF),
+            join_by(city_tse, ANO_ELEICAO == elec_year)) %>% 
+  mutate(dist_ideo.bmean = abs(may_ideo.bmean - leg_ideo.bmean),
+         dist_ideo.b = abs(may_ideo.b - leg_ideo.b)) %>% 
+  select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
+  relocate(ANO_ELEICAO, UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
+           leg_party)
+
+all_elect.b %>%
+  count(ANO_ELEICAO, city_ibge) %>%
+  filter(n > 1)
+
+# Exporting data
+saveRDS(all_elect.b, "processed_data/all_elect_b.RDS")
+saveRDS(mayor_top.b, "processed_data/mayor_top_b.RDS")
+
+## Loading data ------------------------------------------------------------
+all_elect.b <- readRDS("processed_data/all_elect_b.RDS")
+mayor_top.b <- readRDS("processed_data/mayor_top_b.RDS")
+
+# 3. IDEOLOGIA (ZUCCO, POWER, 2023) ----------------------------------------
+## Loading data ------------------------------------------------------------
+tse_ibge <- readRDS("processed_data/tse_ibge.RDS")
+party_seats <- readRDS("processed_data/party_seats.RDS")
+voter <- readRDS("processed_data/voter.RDS")
+party_zone <- readRDS("processed_data/party_zone.RDS")
+majority_round <- read_rds("processed_data/majority_round.RDS")
+unique_round <- read_rds("processed_data/unique_round.RDS")
+second_round <- read_rds("processed_data/second_round.RDS")
+
+load("raw_data/bls9_estimates_partiespresidents_long.RData")
+
+# Abrindo os dados com a mensuracao mais recente de cada partido
+long.table <- long.table %>% group_by(party.or.pres) %>% 
+  filter(year %in% max(year)) %>% 
+  ungroup()
+
+## 3.1 Camaras municipais -----------------------------------------------------
+# Unindo com a base do CEPESP
+party_seats.zuc <- party_seats %>% 
+  left_join(long.table %>% filter(year >= 2017), join_by(party == party.or.pres),
+            copy = T) %>% 
+  select(-c(year, ideo.se, ideo.raw))
+
+# Visualizando observacoes para as quais nao ha dados ideologicos
+View(party_seats.zuc %>% filter(is.na(ideo)))
+View(party_seats.zuc %>% filter(is.na(ideo), elec_year == 2020))
+
+# Partidos na base do CEPESPE que nao estao na base de Zucco e Power
+party_seats.zuc %>% 
+  filter(is.na(ideo)) %>% 
+  distinct(party)
+
+party_seats.zuc %>% 
+  filter(is.na(ideo),
+         elec_year == 2020) %>% 
+  distinct(party)
+
+# Proporcao de cadeiras ocupadas por partidos sem dados ideologicos
+party_seats.zuc %>% 
+  filter(is.na(ideo)) %>% 
+  group_by(city_ibge) %>% 
+  summarise(soma = sum(party_seat_share),
+            proporcao = sum(party_seat_share/disp_seats)) %>% 
+  View()
+
+# Tirando a media ideologica de cada camara municipal
+party_seats.zuc_mun <- party_seats.zuc %>% filter(!is.na(ideo)) %>% 
+  group_by(city_ibge, elec_year) %>% 
+  mutate(notna_seats = sum(party_seat_share)) %>% 
+  reframe(leg_ideo = sum(party_seat_share * ideo / notna_seats),
+          UF = unique(UF),
+          city_name = unique(city_name),
+          leg_party = paste(party, collapse = ", "),
+          elec_year = unique(elec_year), city_ibge = unique(city_ibge),
+          city_tse = unique(city_tse)) %>% 
+  ungroup() %>% 
+  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party)
+
+# Estatisticas descritivas
+max(party_seats.zuc_mun$leg_ideo)
+min(party_seats.zuc_mun$leg_ideo)
+
+## 3.2 Prefeituras ----------------------------------------------------------
+# Unindo com a base de ideologia
+mayor_top.zuc <- rbind(
+  second_round %>% 
+    mutate(may_vote_type = "second round majority") %>% 
+    left_join(long.table, join_by(SG_PARTIDO == party.or.pres),
+              copy = T), 
+  unique_round %>% 
+    mutate(may_vote_type = "first round plurality") %>%
+    left_join(long.table, join_by(SG_PARTIDO == party.or.pres),
+              copy = T), 
+  majority_round %>% 
+    mutate(may_vote_type = "first round majority") %>%
+    left_join(long.table, join_by(SG_PARTIDO == party.or.pres),
+              copy = T)) %>%
+  rename(may_ideo = ideo,
+         mayor_party = SG_PARTIDO, city_name = NM_MUNICIPIO, 
+         city_tse = CD_MUNICIPIO, may_vote_share = vote_share) %>% 
+  left_join(tse_ibge, join_by(city_tse)) %>% 
+  select(-c(ideo.se, ideo.raw))
+
+# Desempatando
+mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 2303303 & ANO_ELEICAO == 2016
+                                     & mayor_party == "PMB"))
+
+mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 2504074 & ANO_ELEICAO == 2020
+                                     & mayor_party == "MDB"))
+
+mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 4113106 & ANO_ELEICAO == 2020
+                                     & mayor_party == "PSD"))
+
+mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 4208955 & ANO_ELEICAO == 2020
+                                     & mayor_party == "PT"))
+
+# Selecionando o vencedor e cruzando com dados legislativos
+all_elect.zuc <- mayor_top.zuc %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
+  filter(may_vote_share == max(may_vote_share)) %>% 
+  ungroup() %>% 
+  left_join(party_seats.zuc_mun %>% select(city_tse, leg_party, elec_year,
+                                         leg_ideo, UF),
+            join_by(city_tse, ANO_ELEICAO == elec_year)) %>% 
+  mutate(dist_ideo = abs(may_ideo - leg_ideo)) %>% 
+  select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
+  relocate(ANO_ELEICAO, UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
+           leg_party)
+
+# Exporting data
+saveRDS(all_elect.zuc, "processed_data/all_elect_zuc.RDS")
+saveRDS(mayor_top.zuc, "processed_data/mayor_top_zuc.RDS")
+
+## Loading data ------------------------------------------------------------
+all_elect.zuc <- readRDS("processed_data/all_elect_zuc.RDS")
+mayor_top.zuc <- readRDS("processed_data/mayor_top_zuc.RDS")
+
+# 5. VALIDACAO DOS DADOS ---------------------------------------------------
+## 5.1 A nivel de camaras municipais ---------------------------------------
+all_elect.zuc %>%
+  count(ANO_ELEICAO, city_ibge) %>%
+  filter(n > 1)
+
+all_elect.b %>%
+  count(ANO_ELEICAO, city_ibge) %>%
+  filter(n > 1)
+
+ideo_br <- read_municipality(year=2020) %>% 
+  left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+            join_by(code_muni == city_ibge)) %>% 
+  left_join(all_elect.zuc %>% filter(ANO_ELEICAO == 2020) %>% 
+              select(-c(UF, ANO_ELEICAO, city_tse, city_name, may_vote_type,
+                        leg_party, may_vote_share, ANO_ELEICAO)), 
+            join_by(code_muni==city_ibge))
+
+ggplot(ideo.all_br, aes(x=ideo_mean, y=ideob.mean)) + 
+  geom_point() +
+  geom_smooth(method=lm , color="red", se=FALSE) +
+  stat_cor(method = "pearson") +
+  labs(title = "Correlação entre classificações distintas de ideologia partidária 
+  quando aplicadas às câmaras municipais brasileiras",
+       x = "Zucco & Power (2023)",
+       y = "Bolognesi, Ribeiro e Codato (2022)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size=22))
+
+ggplot(ideo.all_br, aes(x=ideo_mean, y=ideo.b)) + 
+  geom_point() +
+  geom_smooth(method=lm , color="red", se=FALSE) +
+  stat_cor(method = "pearson") +
+  labs(title = "Correlação linear entre índices de ideologia partidária",
+       x = "Zucco & Power (2023)",
+       y = "Bolognesi, Ribeiro e Codato (2022)")
+theme_minimal()
+
+## 5.2 A nivel de partidos --------------------------------------------------
+all.table <- bolognesi.table %>%
+  left_join(long.table %>% select(party.or.pres,ideo), join_by(party == party.or.pres))
+
+ggplot(all.table, aes(x=ideo, y=ideob.mean)) + 
+  geom_point() +
+  geom_smooth(method=lm , color="red", se=FALSE) +
+  stat_cor(method = "pearson") +
+  labs(title = "Correlação linear entre índices de ideologia partidária",
+       x = "Zucco & Power (2023)",
+       y = "Bolognesi, Ribeiro e Codato (2022)")
+theme_minimal()
