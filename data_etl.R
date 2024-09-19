@@ -1,13 +1,17 @@
 # Pacotes -----------------------------------------------------------------
-if(require(electionsBR) == F) install.packages('electionsBR'); require(electionsBR)
+if(require(deflateBR) == F) install.packages('deflateBR'); require(deflateBR)
 if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
+if(require(electionsBR) == F) install.packages('electionsBR'); require(electionsBR)
 if(require(geobr) == F) install.packages('geobr'); require(geobr)
 if(require(ggplot2) == F) install.packages('ggplot2'); require(ggplot2)
 if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
 if(require(haven) == F) install.packages('haven'); require(haven)
+if(require(ipeadatar) == F) install.packages('ipeadatar'); require(ipeadatar)
+if(require(janitor) == F) install.packages('janitor'); require(janitor)
 if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
+if(require(purrr) == F) install.packages('purrr'); require(purrr)
 if(require(readxl) == F) install.packages('readxl'); require(readxl)
-if(require(sf) == F) install.packages('sf'); require(sf)
+# if(require(sf) == F) install.packages('sf'); require(sf)
 if(require(stringr) == F) install.packages('stringr'); require(stringr)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 
@@ -213,25 +217,29 @@ bolognesi.table <- data.frame(
 # Unindo com a base de CEPESP
 party_seats.b <- party_seats %>% 
   left_join(bolognesi.table, join_by(party == party),
-            copy = T) %>% 
-  rename(leg_ideo.bmean = ideo.bmean, leg_ideo.b = ideo.b)
+            copy = T)
 
 # Visualizacao de missings
-View(party_seats.b %>% filter(is.na(leg_ideo.b)))
+View(party_seats.b %>% filter(is.na(ideo.b)))
 
 # Gerando medias ideologicas para cada camara municipal
 party_seats.b_mun <- party_seats.b %>% #filter(!is.na(leg_ideo.b)) %>% 
   group_by(city_ibge, elec_year) %>% 
-  mutate(notna_seats = sum(party_seat_share)) %>% 
-  reframe(leg_ideo.bmean = sum(party_seat_share * leg_ideo.bmean / notna_seats),
-          leg_ideo.b = sum(party_seat_share * leg_ideo.b / notna_seats),
+  mutate(notna_seats = sum(party_seat_share),
+         leg_party = paste(party, collapse = ", ")) %>% 
+  reframe(leg_ideo.bmean = sum(party_seat_share * ideo.bmean / notna_seats),
+          leg_ideo.b = sum(party_seat_share * ideo.b / notna_seats),
           UF = unique(UF),
           city_name = unique(city_name),
-          leg_party = paste(party, collapse = ", "),
+          leg_party = unique(leg_party),
           elec_year = unique(elec_year), city_ibge = unique(city_ibge),
           city_tse = unique(city_tse)) %>% 
-  ungroup() %>% 
-  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party)
+  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party) %>% 
+  ungroup()
+
+party_seats.b_mun %>% 
+  group_by(elec_year) %>% 
+  count()
 
 # Estatisticas descritivas
 max(party_seats.b_mun$leg_ideo.bmean, na.rm = T)
@@ -345,17 +353,23 @@ party_seats.zuc %>%
   View()
 
 # Tirando a media ideologica de cada camara municipal
-party_seats.zuc_mun <- party_seats.zuc %>% filter(!is.na(ideo)) %>% 
+party_seats.zuc_mun <- party_seats.zuc %>% 
+  mutate(leg_party = paste(party, collapse = ", ")) %>% 
+  filter(!is.na(ideo)) %>% 
   group_by(city_ibge, elec_year) %>% 
   mutate(notna_seats = sum(party_seat_share)) %>% 
   reframe(leg_ideo = sum(party_seat_share * ideo / notna_seats),
           UF = unique(UF),
           city_name = unique(city_name),
-          leg_party = paste(party, collapse = ", "),
+          leg_party = unique(leg_party),
           elec_year = unique(elec_year), city_ibge = unique(city_ibge),
           city_tse = unique(city_tse)) %>% 
-  ungroup() %>% 
-  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party)
+  relocate(elec_year, UF, city_ibge, city_tse, city_name, leg_party) %>% 
+  ungroup()
+
+party_seats.zuc_mun %>% 
+  count(elec_year, city_ibge) %>% 
+  filter(n > 1)
 
 # Estatisticas descritivas
 max(party_seats.zuc_mun$leg_ideo)
@@ -400,13 +414,13 @@ all_elect.zuc <- mayor_top.zuc %>%
   group_by(city_tse, ANO_ELEICAO) %>% 
   filter(may_vote_share == max(may_vote_share)) %>% 
   ungroup() %>% 
-  left_join(party_seats.zuc_mun %>% select(city_tse, leg_party, elec_year,
-                                         leg_ideo, UF),
+  left_join(party_seats.zuc_mun %>% select(city_tse, elec_year,
+                                         leg_ideo, UF, leg_party),
             join_by(city_tse, ANO_ELEICAO == elec_year)) %>% 
   mutate(dist_ideo = abs(may_ideo - leg_ideo)) %>% 
   select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
-  relocate(ANO_ELEICAO, UF, city_ibge, city_tse, city_name, may_vote_type, mayor_party,
-           leg_party)
+  relocate(ANO_ELEICAO, UF, city_ibge, city_tse, city_name, may_vote_type, 
+           mayor_party, leg_party)
 
 # Exporting data
 saveRDS(all_elect.zuc, "processed_data/all_elect_zuc.RDS")
@@ -414,55 +428,84 @@ saveRDS(mayor_top.zuc, "processed_data/mayor_top_zuc.RDS")
 
 ## Loading data ------------------------------------------------------------
 all_elect.zuc <- readRDS("processed_data/all_elect_zuc.RDS")
-mayor_top.zuc <- readRDS("processed_data/mayor_top_zuc.RDS")
+all_elect.b <- readRDS("processed_data/all_elect_b.RDS")
 
-# 5. VALIDACAO DOS DADOS ---------------------------------------------------
-## 5.1 A nivel de camaras municipais ---------------------------------------
-all_elect.zuc %>%
-  count(ANO_ELEICAO, city_ibge) %>%
-  filter(n > 1)
+# 4. VARIAVEIS MUNICIPAIS --------------------------------------------------
+ipeadatar::search_series(language = "br") %>% filter(theme == "Regional")
 
-all_elect.b %>%
-  count(ANO_ELEICAO, city_ibge) %>%
-  filter(n > 1)
+mun_exp_code <- ipeadatar::search_series(language = "br") %>% 
+  filter(grepl("Despesa por função", name),
+         str_ends(code, "M"))
 
-ideo_br <- read_municipality(year=2020) %>% 
-  left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
-            join_by(code_muni == city_ibge)) %>% 
-  left_join(all_elect.zuc %>% filter(ANO_ELEICAO == 2020) %>% 
-              select(-c(UF, ANO_ELEICAO, city_tse, city_name, may_vote_type,
-                        leg_party, may_vote_share, ANO_ELEICAO)), 
-            join_by(code_muni==city_ibge))
+mun_var_code <- c("PIB_IBGE_5938_37", "TACIDT", "THOMIC", "TSUICID", 
+    "POP_PROJE", "POPTOT", "RECORRM")
 
-ggplot(ideo.all_br, aes(x=ideo_mean, y=ideob.mean)) + 
-  geom_point() +
-  geom_smooth(method=lm , color="red", se=FALSE) +
-  stat_cor(method = "pearson") +
-  labs(title = "Correlação entre classificações distintas de ideologia partidária 
-  quando aplicadas às câmaras municipais brasileiras",
-       x = "Zucco & Power (2023)",
-       y = "Bolognesi, Ribeiro e Codato (2022)") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5, size=22))
+codebook <- ipeadatar::search_series(language = "br") %>% 
+  filter(code %in% mun_var_code) %>% 
+  rbind(mun_exp_code)
 
-ggplot(ideo.all_br, aes(x=ideo_mean, y=ideo.b)) + 
-  geom_point() +
-  geom_smooth(method=lm , color="red", se=FALSE) +
-  stat_cor(method = "pearson") +
-  labs(title = "Correlação linear entre índices de ideologia partidária",
-       x = "Zucco & Power (2023)",
-       y = "Bolognesi, Ribeiro e Codato (2022)")
-theme_minimal()
+mun_var <- purrr::map(codebook$code,
+                   ~ipeadatar::ipeadata(code = .x, language = "br") %>% 
+                     dplyr::filter(uname == "Municípios") %>% 
+  dplyr::select(-uname)) %>% 
+  purrr::list_rbind()
 
-## 5.2 A nivel de partidos --------------------------------------------------
-all.table <- bolognesi.table %>%
-  left_join(long.table %>% select(party.or.pres,ideo), join_by(party == party.or.pres))
+# Exporting raw data
+saveRDS(mun_var, "raw_data/mun_var.rds")
+saveRDS(codebook, "raw_data/mun_var_codebook.rds")
 
-ggplot(all.table, aes(x=ideo, y=ideob.mean)) + 
-  geom_point() +
-  geom_smooth(method=lm , color="red", se=FALSE) +
-  stat_cor(method = "pearson") +
-  labs(title = "Correlação linear entre índices de ideologia partidária",
-       x = "Zucco & Power (2023)",
-       y = "Bolognesi, Ribeiro e Codato (2022)")
-theme_minimal()
+# Loading raw data
+mun_var <- readRDS("raw_data/mun_var.rds")
+
+str_var <- mun_var %>%
+  tidyr::pivot_wider(
+    names_from = code,
+    values_from = value
+  ) %>%
+  janitor::clean_names() %>%
+  rename(pib = pib_ibge_5938_37)
+
+str_var <- str_var %>% 
+  mutate(real_recorrm = deflateBR::deflate(nominal_values = str_var$recorrm,
+                                       nominal_dates = str_var$date,
+                                       index = "ipca",
+                                       real_date = '01/2010'),
+         real_dfagrm = deflateBR::deflate(nominal_values = str_var$dfagrm,
+                                          nominal_dates = str_var$date,
+                                          index = "ipca",
+                                          real_date = '01/2010'),
+         real_dfasprm = deflateBR::deflate(nominal_values = str_var$dfasprm,
+                                          nominal_dates = str_var$date,
+                                          index = "ipca",
+                                          real_date = '01/2010'),
+         real_dfcetm = deflateBR::deflate(nominal_values = str_var$dfcetm,
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
+         real_dfdefsm = deflateBR::deflate(nominal_values = str_var$dfdefsm,
+                                          nominal_dates = str_var$date,
+                                          index = "ipca",
+                                          real_date = '01/2010'),
+         real_dfeducm = deflateBR::deflate(nominal_values = str_var$dfeducm,
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
+         real_dfhabm = deflateBR::deflate(nominal_values = str_var$dfhabm,
+                                      nominal_dates = str_var$date,
+                                      index = "ipca",
+                                      real_date = '01/2010'),
+         real_dfsausm = deflateBR::deflate(nominal_values = str_var$dfsausm,
+                                          nominal_dates = str_var$date,
+                                          index = "ipca",
+                                          real_date = '01/2010'),
+         recorrm_pcp = real_recorrm/poptot, 
+         dfagrm_pcp = real_dfagrm/poptot,
+         dfasprm_pcp = real_dfasprm/poptot,
+         dfcetm_pcp = real_dfcetm/poptot,
+         dfdefsm_pcp = real_dfdefsm/ poptot,
+         dfeducm_pcp = real_dfeducm/ poptot,
+         dfhabm_pcp = real_dfhabm/poptot,
+         dfsausm_pcp = dfsausm/poptot)
+
+# Exporting raw data
+saveRDS(str_var, "processed_data/structured_mun_var.rds")
