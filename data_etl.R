@@ -2,7 +2,7 @@
 if(require(deflateBR) == F) install.packages('deflateBR'); require(deflateBR)
 if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
 if(require(electionsBR) == F) install.packages('electionsBR'); require(electionsBR)
-if(require(geobr) == F) install.packages('geobr'); require(geobr)
+# if(require(geobr) == F) install.packages('geobr'); require(geobr)
 if(require(ggplot2) == F) install.packages('ggplot2'); require(ggplot2)
 if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
 if(require(haven) == F) install.packages('haven'); require(haven)
@@ -12,8 +12,11 @@ if(require(magrittr) == F) install.packages('magrittr'); require(magrittr)
 if(require(purrr) == F) install.packages('purrr'); require(purrr)
 if(require(readxl) == F) install.packages('readxl'); require(readxl)
 # if(require(sf) == F) install.packages('sf'); require(sf)
+if(require(sidrar) == F) install.packages('sidrar'); require(sidrar)
 if(require(stringr) == F) install.packages('stringr'); require(stringr)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
+if(require(tidyr) == F) install.packages('tidyr'); require(tidyr)
+if(require(zoo) == F) install.packages('zoo'); require(zoo)
 
 # 1. DADOS ELEITORAIS --------------------------------------------------------
 ## 1.1 Resultados eleitorais CEPESP ------------------------------------------
@@ -438,7 +441,7 @@ mun_exp_code <- ipeadatar::search_series(language = "br") %>%
          str_ends(code, "M"))
 
 mun_var_code <- c("PIB_IBGE_5938_37", "TACIDT", "THOMIC", "TSUICID", 
-    "POP_PROJE", "POPTOT", "RECORRM")
+                  "POPTOT", "RECORRM")
 
 codebook <- ipeadatar::search_series(language = "br") %>% 
   filter(code %in% mun_var_code) %>% 
@@ -450,12 +453,27 @@ mun_var <- purrr::map(codebook$code,
   dplyr::select(-uname)) %>% 
   purrr::list_rbind()
 
+periodo <- as.character(seq(2000, 2024))
+
+pop <- purrr::map(periodo,
+                  ~get_sidra(6579, geo = "City",
+                             period = .x)) %>%
+  list_rbind() %>%
+  clean_names() %>%
+  rename(estpop = valor, tcode = municipio_codigo) %>%
+  mutate(tcode = as.double(tcode),
+         ano = as.double(ano))
+
 # Exporting raw data
 saveRDS(mun_var, "raw_data/mun_var.rds")
 saveRDS(codebook, "raw_data/mun_var_codebook.rds")
+saveRDS(pop, "sidra_estpop.RDS")
 
-# Loading raw data
+# Loading data
 mun_var <- readRDS("raw_data/mun_var.rds")
+estpop <- readRDS("processed_data/sidra_estpop.rds") %>% 
+  filter(nivel_territorial_codigo == 6) %>% 
+  mutate(date = ymd(paste0(ano, "-01-01")))
 
 str_var <- mun_var %>%
   tidyr::pivot_wider(
@@ -463,9 +481,14 @@ str_var <- mun_var %>%
     values_from = value
   ) %>%
   janitor::clean_names() %>%
-  rename(pib = pib_ibge_5938_37)
+  rename(pib = pib_ibge_5938_37) %>% 
+  left_join(estpop %>% select(estpop, tcode, date), 
+            join_by(tcode, date))
 
 str_var <- str_var %>% 
+  group_by(tcode) %>% 
+  mutate(estpop = na.approx(estpop, na.rm = F)) %>% 
+  ungroup() %>% 
   mutate(real_recorrm = deflateBR::deflate(nominal_values = str_var$recorrm,
                                        nominal_dates = str_var$date,
                                        index = "ipca",
@@ -498,14 +521,22 @@ str_var <- str_var %>%
                                           nominal_dates = str_var$date,
                                           index = "ipca",
                                           real_date = '01/2010'),
-         recorrm_pcp = real_recorrm/poptot, 
-         dfagrm_pcp = real_dfagrm/poptot,
-         dfasprm_pcp = real_dfasprm/poptot,
-         dfcetm_pcp = real_dfcetm/poptot,
-         dfdefsm_pcp = real_dfdefsm/ poptot,
-         dfeducm_pcp = real_dfeducm/ poptot,
-         dfhabm_pcp = real_dfhabm/poptot,
-         dfsausm_pcp = dfsausm/poptot)
+         recorrm_pcp = real_recorrm/estpop, 
+         dfagrm_pcp = real_dfagrm/estpop,
+         dfasprm_pcp = real_dfasprm/estpop,
+         dfcetm_pcp = real_dfcetm/estpop,
+         dfdefsm_pcp = real_dfdefsm/ estpop,
+         dfeducm_pcp = real_dfeducm/ estpop,
+         dfhabm_pcp = real_dfhabm/estpop,
+         dfsausm_pcp = dfsausm/estpop) %>% 
+  select(-poptot)
+
+str_var %>% 
+  group_by(date) %>% 
+  summarise(recorrm_pcp = sum(is.na(recorrm_pcp)),
+            recorrm = sum(is.na(recorrm)),
+            real_recorrm = sum(is.na(real_recorrm)),
+            estpop = sum(is.na(estpop)))
 
 # Exporting raw data
 saveRDS(str_var, "processed_data/structured_mun_var.rds")
