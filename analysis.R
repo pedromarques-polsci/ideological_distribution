@@ -1,16 +1,305 @@
 # PACOTES -----------------------------------------------------------------
 if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
 if(require(geobr) == F) install.packages('geobr'); require(geobr)
+if(require(lmtest) == F) install.packages('lmtest'); require(lmtest)
 if(require(lubridate) == F) install.packages('lubridate'); require(lubridate)
+if(require(plm) == F) install.packages('plm'); require(plm)
+if(require(rdrobust) == F) install.packages('rdrobust'); require(rdrobust)
+if(require(rddtools) == F) install.packages('rddtools'); require(rddtools)
 if(require(sf) == F) install.packages('sf'); require(sf)
 if(require(tidyr) == F) install.packages('tidyr'); require(tidyr)
 
-# Loading data ------------------------------------------------------------
+# LOADING DATA ------------------------------------------------------------
 # Dados municipais
 all_elect.zuc <- readRDS("processed_data/all_elect_zuc.RDS")
 all_elect.b <- readRDS("processed_data/all_elect_b.RDS")
 str_mun_var <- readRDS("processed_data/structured_mun_var.rds")
+codebook <- readRDS("raw_data/mun_var_codebook.rds")
 
+## Tratamento final  ------------------------------------------------------
+dataset <- str_mun_var %>%
+  left_join(all_elect.b %>% 
+              mutate(date = ymd(paste0(ANO_ELEICAO + 1, "-01-01"))), 
+            join_by(tcode == city_ibge, date == date)) %>% 
+  group_by(tcode) %>% 
+  arrange(date) %>% 
+  fill(ANO_ELEICAO:dist_ideo.b, .direction = "down") %>% 
+  mutate(across(recorrm_pcp:dftrabm_pcp, ~ifelse(.x == 0, NA, .x))) %>% 
+  mutate(d_dfagrm_pcp = dplyr::lag(dfagrm_pcp, n = 1),
+         d_dfasprm_pcp = dplyr::lag(dfasprm_pcp, n = 1),
+         d_dfcetm_pcp = dplyr::lag(dfcetm_pcp, n = 1),
+         d_dfdefsm_pcp = dplyr::lag(dfdefsm_pcp, n = 1),
+         d_dfhabm_pcp = dplyr::lag(dfhabm_pcp, n = 1),
+         d_dfeducm_pcp = dplyr::lag(dfeducm_pcp, n = 1),
+         d_dfsausm_pcp = dplyr::lag(dfsausm_pcp, n = 1),
+         d_dftrabm_pcp = dplyr::lag(dftrabm_pcp, n = 1),
+         d_pib_pcp = dplyr::lag(pib_pcp, n = 1),
+         d_recorrm_pcp = dplyr::lag(recorrm_pcp, n = 1)) %>% 
+  ungroup() %>% 
+  mutate(year = lubridate::year(date),
+         log_dfagrm_pcp = log(dfagrm_pcp),
+         log_dfasprm_pcp = log(dfasprm_pcp),
+         log_dfcetm_pcp = log(dfcetm_pcp),
+         log_dfdefsm_pcp = log(dfdefsm_pcp),
+         log_dfeducm_pcp = log(dfeducm_pcp),
+         log_dfhabm_pcp = log(dfhabm_pcp),
+         log_dfsausm_pcp = log(dfsausm_pcp),
+         log_dftrabm_pcp = log(dftrabm_pcp),
+         log_pib_pcp = log(pib_pcp),
+         log_recorrm_pcp = log(recorrm_pcp))
+
+# 1. ANALISE DE REGRESSAO (NAIVE) -----------------------------------------
+# Saude e saneamento
+enr_data <- dataset %>% filter(date == "2021-01-01")
+
+enr_data %>% plm(formula = dfsausm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                   data = .,
+                   index = c("tcode", "year"),
+                   model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_recorrm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_dfsausm_pcp))
+
+log_enr_data %>% plm(formula = log_dfsausm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Trabalho (DFTRABM)
+enr_data %>% plm(formula = dftrabm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dftrabm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dftrabm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Habitacao (DFHABM)
+enr_data %>% plm(formula = dfhabm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+enr_data %>% plm(formula = dfhabm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfhabm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfhabm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Educacao (DFEDUCM)
+enr_data %>% plm(formula = dfeducm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfeducm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfeducm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Gestao ambiental
+enr_data %>% plm(formula = dfagrm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfagrm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfagrm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Protecao social
+enr_data %>% plm(formula = dfasprm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfasprm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfasprm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Ciencia e tecnologia
+enr_data %>% plm(formula = dfcetm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfcetm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfcetm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# Seguranca publica
+enr_data %>% plm(formula = dfdefsm_pcp ~ may_ideo.bmean + recorrm_pcp +
+                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean + thomic +
+                   tacidt,
+                 data = .,
+                 index = c("tcode", "year"),
+                 model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfdefsm_pcp),
+                                    is.finite(log_pib_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfdefsm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean + thomic,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+# 2. RDD -------------------------------------------------------------------
+## 2.1 Tratamento dos dados ------------------------------------------------
+mayor_top.b <- readRDS("processed_data/mayor_top_b.RDS")
+
+# Vitoria da esquerda sobre a direita/centro
+left_wins_right <- mayor_top.b %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
+  filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] < 0,
+         min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] >= 0) %>% 
+  mutate(left_vote_share = 
+           max(may_vote_share)/(max(may_vote_share)+min(may_vote_share)),
+         right_vote_share = 
+           min(may_vote_share)/(max(may_vote_share)+min(may_vote_share))) %>% 
+  ungroup() %>% filter(ANO_ELEICAO == 2020)
+
+# Vitoria da direita/centro sobre a esquerda
+right_wins_left <- mayor_top.b %>% 
+  group_by(city_tse, ANO_ELEICAO) %>% 
+  filter(max(may_vote_share) & may_ideo.b[which.max(may_vote_share)] >= 0,
+         min(may_vote_share) & may_ideo.b[which.min(may_vote_share)] < 0) %>% 
+  mutate(left_vote_share = 
+           min(may_vote_share)/(max(may_vote_share)+min(may_vote_share)),
+         right_vote_share = 
+           max(may_vote_share)/(max(may_vote_share)+min(may_vote_share))) %>% 
+  ungroup() %>% filter(ANO_ELEICAO == 2020)
+
+# Base de dados unica: todos os resultados abaixo do cutoff sao derrotas da
+# esquerda e vice-verse
+competitive_election <- rbind(left_wins_right %>% 
+                                group_by(city_tse) %>% 
+                                filter(may_vote_share == max(may_vote_share)), 
+                              right_wins_left %>% 
+                                group_by(city_tse) %>% 
+                                filter(may_vote_share == max(may_vote_share)))
+
+# Exporting data
+saveRDS(competitive_election, "processed_data/competitive_election.RDS")
+
+## 2.2 Enriquecimento -----------------------------------------------------
+competitive_election <- readRDS("processed_data/competitive_election.RDS")
+
+dataset_rdd <- dataset %>% select(date, year, tcode, real_recorrm:dftrabm_pcp,
+                                  d_dfagrm_pcp:d_recorrm_pcp, dist_ideo.bmean,
+                   log_dfagrm_pcp:log_recorrm_pcp) %>% 
+  left_join(competitive_election %>% 
+              select(ANO_ELEICAO, city_ibge, left_vote_share) %>% 
+              mutate(date = ymd(paste0(ANO_ELEICAO + 1, "-01-01"))),
+            join_by(tcode == city_ibge, date == date)) %>% 
+  group_by(tcode) %>% 
+  arrange(date) %>% 
+  fill(ANO_ELEICAO:left_vote_share, .direction = "downup") %>% 
+  ungroup() %>% 
+  filter(year >= 2021)
+
+## 2.3 Estimation ----------------------------------------------------------
+dataset_rdd_2022 <- dataset_rdd %>% filter(year == 2022)
+dataset_rdd_2021 <- dataset_rdd %>% filter(year == 2021)
+
+rdrobust(y = dataset_rdd_2022$log_dfdefsm_pcp, 
+         x = dataset_rdd_2022$left_vote_share, c = 0.5,
+         p = 1) %>% summary()
+
+rdrobust(y = dataset_rdd_2022$log_dfdefsm_pcp, 
+         x = dataset_rdd_2022$left_vote_share, c = 0.5,
+         p = 3) %>% summary()
+
+rdplot(y = dataset_rdd_2022$log_dfdefsm_pcp, 
+       x = dataset_rdd_2022$left_vote_share, c = 0.5, 
+       p = 1, h = 0.122, x.lim = c(0.5-0.122,0.5+0.122),
+       x.label = "Performance eleitoral da esquerda",
+       y.label = "Gasto com Segurança Pública (log)", 
+       title = "Efeito Médio de Tratamento Local")
+
+rdplot(y = dataset_rdd_2022$log_dfdefsm_pcp, 
+       x = dataset_rdd_2022$left_vote_share, c = 0.5, 
+       p = 3, h = 0.122, x.lim = c(0.5-0.122,0.5+0.122),
+       x.label = "Performance eleitoral da esquerda",
+       y.label = "Gasto com Segurança Pública (log)", 
+       title = "Efeito Médio de Tratamento Local")
+
+# 3. VALIDACAO DOS DADOS ---------------------------------------------------
 # Ideologia
 bolognesi.table <- data.frame(
   party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "PT", "PDT",
@@ -46,18 +335,7 @@ long.table <- long.table %>% group_by(party.or.pres) %>%
   filter(year %in% max(year)) %>% 
   ungroup()
 
-# 1. CORRELACOES ----------------------------------------------------------
-enr_data <- str_mun_var %>%
-  left_join(all_elect.b %>% mutate(date = ymd(paste0(ANO_ELEICAO, "-01-01"))), 
-            join_by(tcode == city_ibge, date == date)) %>% 
-  group_by(tcode) %>% 
-  arrange(date) %>% 
-  fill(ANO_ELEICAO:dist_ideo.b, .direction = "down") %>% 
-  ungroup() %>% 
-  filter(ANO_ELEICAO >= 2016)
-
-# 5. VALIDACAO DOS DADOS ---------------------------------------------------
-## 5.1 A nivel de camaras e prefeituras ------------------------------------
+## 3.1 A nivel de camaras e prefeituras ------------------------------------
 all_elect.zuc %>%
   count(ANO_ELEICAO, city_ibge) %>%
   filter(n > 1)
@@ -96,7 +374,7 @@ ggplot(ideo_br_2020, aes(x=may_ideo, y=may_ideo.bmean)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size=20))
 
-## 5.2 A nivel de partidos --------------------------------------------------
+## 3.2 A nivel de partidos --------------------------------------------------
 all.table <- bolognesi.table %>%
   left_join(long.table %>% select(party.or.pres,ideo), join_by(party == party.or.pres))
 

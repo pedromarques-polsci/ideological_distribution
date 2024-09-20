@@ -521,14 +521,20 @@ str_var <- str_var %>%
                                           nominal_dates = str_var$date,
                                           index = "ipca",
                                           real_date = '01/2010'),
+         real_dftrabm = deflateBR::deflate(nominal_values = str_var$dftrabm,
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
          recorrm_pcp = real_recorrm/estpop, 
+         pib_pcp = pib/estpop,
          dfagrm_pcp = real_dfagrm/estpop,
          dfasprm_pcp = real_dfasprm/estpop,
          dfcetm_pcp = real_dfcetm/estpop,
          dfdefsm_pcp = real_dfdefsm/ estpop,
          dfeducm_pcp = real_dfeducm/ estpop,
          dfhabm_pcp = real_dfhabm/estpop,
-         dfsausm_pcp = dfsausm/estpop) %>% 
+         dfsausm_pcp = real_dfsausm/estpop,
+         dftrabm_pcp = real_dftrabm/estpop) %>% 
   select(-poptot)
 
 str_var %>% 
