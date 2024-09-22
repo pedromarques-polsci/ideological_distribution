@@ -1,6 +1,8 @@
 # PACOTES -----------------------------------------------------------------
 if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
 if(require(geobr) == F) install.packages('geobr'); require(geobr)
+if(require(ggplot) == F) install.packages('geobr'); require(ggplot)
+if(require(ggpubr) == F) install.packages('ggpubr'); require(ggpubr)
 if(require(lmtest) == F) install.packages('lmtest'); require(lmtest)
 if(require(lubridate) == F) install.packages('lubridate'); require(lubridate)
 if(require(plm) == F) install.packages('plm'); require(plm)
@@ -16,6 +18,191 @@ all_elect.b <- readRDS("processed_data/all_elect_b.RDS")
 str_mun_var <- readRDS("processed_data/structured_mun_var.rds")
 codebook <- readRDS("raw_data/mun_var_codebook.rds")
 
+# 1. ANALISE DESCRITIVA ---------------------------------------------------
+
+## 1.1 GEOLOCALIZACAO ------------------------------------------------------
+### 1.1.1 PARAIBA -----------------------------------------------------------
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% 
+  summary(na.rm = T)
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% 
+  summarise(sd(may_ideo.bmean, na.rm = T)/mean(may_ideo.bmean, na.rm = T))
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% 
+  summarise(sd(dist_ideo.bmean, na.rm = T)/mean(dist_ideo.bmean, na.rm = T))
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% 
+  summarise(sd(leg_ideo.bmean, na.rm = T)/mean(leg_ideo.bmean, na.rm = T))
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% View()
+
+uniqv <- unique(all_elect.b$may_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect.b$may_ideo.bmean, uniqv)))]
+
+uniqv <- unique(all_elect.b$leg_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect.b$leg_ideo.bmean, uniqv)))]
+
+uniqv <- unique(all_elect.b$dist_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect.b$dist_ideo.bmean, uniqv)))]
+
+all_elect.b %>% 
+  filter(ANO_ELEICAO == 2020) %>% 
+  count(leg_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(desc(freq))
+
+all_elect.b %>% 
+  filter(ANO_ELEICAO == 2020) %>% 
+  count(leg_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(freq)
+
+all_elect.b %>% 
+  filter(ANO_ELEICAO == 2020) %>% 
+  count(mayor_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(desc(freq))
+
+all_elect.b %>% 
+  filter(ANO_ELEICAO == 2020) %>% 
+  count(mayor_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(freq)
+
+all_elect.b %>% 
+  filter(ANO_ELEICAO == 2020, UF == "PE") %>% 
+  View()
+
+#### PREFEITURAS
+may_pb <- ggplot() +
+  labs(title = "Ideologia partidária dos prefeitos",
+       subtitle = "Paraíba (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=may_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(3, 8.5),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+may_pb
+
+ggsave('plot/may_pb.png', dpi = 300, height = 5, width = 10, unit = 'in', may_pb)
+
+#### LEGISLATURAS
+leg_pb <- ggplot() +
+  labs(title = "Ideologia partidária das câmaras municipais",
+       subtitle = "Paraíba (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=leg_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(4.0, 8.5),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+leg_pb
+
+ggsave('plot/leg_pb.png', dpi = 300, height = 5, width = 10, unit = 'in', leg_pb)
+
+#### DISTANCIA IDEOLOGICA
+dist_pb <- ggplot() +
+  labs(title = "Distância ideológica entre prefeito e legislatura",
+       subtitle = "Paraíba (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 25, year=2020) %>% 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=dist_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Distância",
+                       colors = c(low = "white", mid = "lightgreen", 
+                                  high = "brown4"),
+                       breaks = c(0.08, 3.37),
+                       labels = c("Convergência", "Divergência"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+dist_pb
+
+ggsave('plot/dist_pb.png', dpi = 300, height = 5, width = 10, unit = 'in', dist_pb)
+
+### 1.1.2 PERNAMBUCO --------------------------------------------------------------
+#### PREFEITURAS
+may_pe <- ggplot() +
+  labs(title = "Ideologia partidária dos prefeitos",
+       subtitle = "Pernambuco (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 26, year=2020) %>% 
+            filter(code_muni != 2605459) %>% 
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=may_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(2, 8.5),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+may_pe
+
+ggsave('plot/may_pe.png', dpi = 300, height = 5, width = 10, unit = 'in', may_pe)
+
+#### LEGISLATURAS
+leg_pe <- ggplot() +
+  labs(title = "Ideologia partidária das câmaras municipais",
+       subtitle = "Pernambuco (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 26, year=2020)  %>% 
+            filter(code_muni != 2605459) %>%  
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=leg_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Ideologia Partidária",
+                       colors = c(low = "red", mid = "white", high = "blue"),
+                       breaks = c(3.1, 8.3),
+                       labels = c("Esquerda", "Direita"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "white")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+leg_pe
+
+ggsave('plot/leg_pe.png', dpi = 300, height = 5, width = 10, unit = 'in', leg_pe)
+
+#### DISTANCIA IDEOLOGICA
+dist_pe <- ggplot() +
+  labs(title = "Distância ideológica entre prefeito e legislatura",
+       subtitle = "Pernambuco (2020)") +
+  geom_sf(data = 
+            read_municipality(code_muni = 26, year=2020) %>% 
+            filter(code_muni != 2605459) %>%  
+            left_join(all_elect.b %>% filter(ANO_ELEICAO == 2020), 
+                      join_by(code_muni==city_ibge)), 
+          aes(fill=dist_ideo.bmean), size=.15) +
+  scale_fill_gradientn(name = "Distância",
+                       colors = c(low = "white", mid = "lightgreen", 
+                                  high = "brown4"),
+                       breaks = c(0.1, 4.3),
+                       labels = c("Convergência", "Divergência"),
+                       guide = guide_colorbar(frame.colour = "black", 
+                                              ticks.colour = "darkorange")) +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+
+dist_pe
+
+ggsave('plot/dist_pe.png', dpi = 300, height = 5, width = 10, unit = 'in', 
+       dist_pe)
+
+# 2. ANALISE DE REGRESSAO (NAIVE) -----------------------------------------
 ## Tratamento final  ------------------------------------------------------
 dataset <- str_mun_var %>%
   left_join(all_elect.b %>% 
@@ -48,10 +235,9 @@ dataset <- str_mun_var %>%
          log_pib_pcp = log(pib_pcp),
          log_recorrm_pcp = log(recorrm_pcp))
 
-# 1. ANALISE DE REGRESSAO (NAIVE) -----------------------------------------
-# Saude e saneamento
-enr_data <- dataset %>% filter(date == "2021-01-01")
+enr_data <- dataset %>% filter(date >= "2021-01-01")
 
+# Saude e saneamento
 enr_data %>% plm(formula = dfsausm_pcp ~ may_ideo.bmean + recorrm_pcp +
                    pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
                    data = .,
@@ -219,8 +405,8 @@ log_enr_data %>% plm(formula = log_dfdefsm_pcp ~ may_ideo.bmean +
                      model = "pooling") %>%
   coeftest(., vcov = vcovHC(., type="HC0"))
 
-# 2. RDD -------------------------------------------------------------------
-## 2.1 Tratamento dos dados ------------------------------------------------
+# 3. RDD -------------------------------------------------------------------
+## 3.1 Tratamento dos dados ------------------------------------------------
 mayor_top.b <- readRDS("processed_data/mayor_top_b.RDS")
 
 # Vitoria da esquerda sobre a direita/centro
@@ -257,7 +443,7 @@ competitive_election <- rbind(left_wins_right %>%
 # Exporting data
 saveRDS(competitive_election, "processed_data/competitive_election.RDS")
 
-## 2.2 Enriquecimento -----------------------------------------------------
+## 3.2 Enriquecimento -----------------------------------------------------
 competitive_election <- readRDS("processed_data/competitive_election.RDS")
 
 dataset_rdd <- dataset %>% select(date, year, tcode, real_recorrm:dftrabm_pcp,
@@ -273,7 +459,7 @@ dataset_rdd <- dataset %>% select(date, year, tcode, real_recorrm:dftrabm_pcp,
   ungroup() %>% 
   filter(year >= 2021)
 
-## 2.3 Estimation ----------------------------------------------------------
+## 3.3 Estimation ----------------------------------------------------------
 dataset_rdd_2022 <- dataset_rdd %>% filter(year == 2022)
 dataset_rdd_2021 <- dataset_rdd %>% filter(year == 2021)
 
@@ -287,19 +473,19 @@ rdrobust(y = dataset_rdd_2022$log_dfdefsm_pcp,
 
 rdplot(y = dataset_rdd_2022$log_dfdefsm_pcp, 
        x = dataset_rdd_2022$left_vote_share, c = 0.5, 
-       p = 1, h = 0.122, x.lim = c(0.5-0.122,0.5+0.122),
+       p = 1, h = 0.061, x.lim = c(0.5-0.061,0.5+0.061),
        x.label = "Performance eleitoral da esquerda",
-       y.label = "Gasto com Segurança Pública (log)", 
+       y.label = "Gasto com Segurança Pública (log) 2022", 
        title = "Efeito Médio de Tratamento Local")
 
 rdplot(y = dataset_rdd_2022$log_dfdefsm_pcp, 
        x = dataset_rdd_2022$left_vote_share, c = 0.5, 
        p = 3, h = 0.122, x.lim = c(0.5-0.122,0.5+0.122),
        x.label = "Performance eleitoral da esquerda",
-       y.label = "Gasto com Segurança Pública (log)", 
+       y.label = "Gasto com Segurança Pública (log) 2022", 
        title = "Efeito Médio de Tratamento Local")
 
-# 3. VALIDACAO DOS DADOS ---------------------------------------------------
+# 4. VALIDACAO DOS DADOS ---------------------------------------------------
 # Ideologia
 bolognesi.table <- data.frame(
   party = c("PSTU", "PCO", "PCB", "PSOL", "PCDOB", "PT", "PDT",
@@ -335,7 +521,7 @@ long.table <- long.table %>% group_by(party.or.pres) %>%
   filter(year %in% max(year)) %>% 
   ungroup()
 
-## 3.1 A nivel de camaras e prefeituras ------------------------------------
+## 4.1 A nivel de camaras e prefeituras ------------------------------------
 all_elect.zuc %>%
   count(ANO_ELEICAO, city_ibge) %>%
   filter(n > 1)
@@ -352,7 +538,7 @@ ideo_br_2020 <- read_municipality(year=2020) %>%
                         leg_party, may_vote_share, ANO_ELEICAO, mayor_party)), 
             join_by(code_muni==city_ibge))
 
-ggplot(ideo_br_2020, aes(x=leg_ideo, y=leg_ideo.bmean)) + 
+corr1 <- ggplot(ideo_br_2020, aes(x=leg_ideo, y=leg_ideo.bmean)) + 
   geom_point() +
   geom_smooth(method=lm , color="red", se=FALSE) +
   stat_cor(method = "pearson") +
@@ -363,7 +549,12 @@ ggplot(ideo_br_2020, aes(x=leg_ideo, y=leg_ideo.bmean)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size=22))
 
-ggplot(ideo_br_2020, aes(x=may_ideo, y=may_ideo.bmean)) + 
+corr1
+
+ggsave('plot/may_corr.png', dpi = 300, height = 5, width = 10, unit = 'in',
+       corr1)
+
+corr2 <- ggplot(ideo_br_2020, aes(x=may_ideo, y=may_ideo.bmean)) + 
   geom_point() +
   geom_smooth(method=lm , color="red", se=FALSE) +
   stat_cor(method = "pearson") +
@@ -374,11 +565,16 @@ ggplot(ideo_br_2020, aes(x=may_ideo, y=may_ideo.bmean)) +
   theme_minimal() +
   theme(plot.title = element_text(hjust = 0.5, size=20))
 
-## 3.2 A nivel de partidos --------------------------------------------------
+corr2
+
+ggsave('plot/leg_corr.png', dpi = 300, height = 5, width = 10, unit = 'in',
+       corr2)
+
+## 4.2 A nivel de partidos --------------------------------------------------
 all.table <- bolognesi.table %>%
   left_join(long.table %>% select(party.or.pres,ideo), join_by(party == party.or.pres))
 
-ggplot(all.table, aes(x=ideo, y=ideo.bmean)) + 
+corr3 <- ggplot(all.table, aes(x=ideo, y=ideo.bmean)) + 
   geom_point() +
   geom_smooth(method=lm , color="red", se=FALSE) +
   stat_cor(method = "pearson") +
@@ -386,3 +582,8 @@ ggplot(all.table, aes(x=ideo, y=ideo.bmean)) +
        x = "Zucco & Power (2023)",
        y = "Bolognesi, Ribeiro e Codato (2022)") +
 theme_minimal()
+
+corr3
+
+ggsave('plot/party_corr.png', dpi = 300, height = 5, width = 10, unit = 'in',
+       corr3)
