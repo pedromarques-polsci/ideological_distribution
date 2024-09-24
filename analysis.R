@@ -238,23 +238,26 @@ dataset <- str_mun_var %>%
 enr_data <- dataset %>% filter(date >= "2021-01-01")
 
 # Saude e saneamento
-enr_data %>% plm(formula = dfsausm_pcp ~ may_ideo.bmean + recorrm_pcp +
-                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
-                   data = .,
-                   index = c("tcode", "year"),
-                   model = "pooling") %>%
-  coeftest(., vcov = vcovHC(., type="HC0"))
-
-log_enr_data <- enr_data %>% filter(is.finite(log_recorrm_pcp),
-                                    is.finite(log_pib_pcp),
+log_enr_data <- enr_data %>% filter(is.finite(log_pib_pcp),
                                     is.finite(log_dfsausm_pcp))
 
 log_enr_data %>% plm(formula = log_dfsausm_pcp ~ may_ideo.bmean + 
-                       log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       log_pib_pcp + dist_ideo.bmean + 
                        leg_ideo.bmean,
-                 data = .,
-                 index = c("tcode", "year"),
-                 model = "pooling") %>%
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_recorrm_pcp),
+                                    is.finite(log_dfsausm_pcp))
+
+log_enr_data %>% plm(formula = log_dfsausm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
   coeftest(., vcov = vcovHC(., type="HC0"))
 
 # Trabalho (DFTRABM)
@@ -305,19 +308,34 @@ log_enr_data %>% plm(formula = log_dfhabm_pcp ~ may_ideo.bmean +
   coeftest(., vcov = vcovHC(., type="HC0"))
 
 # Educacao (DFEDUCM)
-enr_data %>% plm(formula = dfeducm_pcp ~ may_ideo.bmean + recorrm_pcp +
-                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean,
-                 data = .,
-                 index = c("tcode", "year"),
-                 model = "pooling") %>%
-  coeftest(., vcov = vcovHC(., type="HC0"))
-
 log_enr_data <- enr_data %>% filter(is.finite(log_dfeducm_pcp),
                                     is.finite(log_pib_pcp),
                                     is.finite(log_recorrm_pcp))
 
 log_enr_data %>% plm(formula = log_dfeducm_pcp ~ may_ideo.bmean + 
                        log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfeducm_pcp),
+                                    is.finite(log_pib_pcp))
+
+log_enr_data %>% plm(formula = log_dfeducm_pcp ~ may_ideo.bmean + 
+                       log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfeducm_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfeducm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + dist_ideo.bmean + 
                        leg_ideo.bmean,
                      data = .,
                      index = c("tcode", "year"),
@@ -385,20 +403,34 @@ log_enr_data %>% plm(formula = log_dfcetm_pcp ~ may_ideo.bmean +
   coeftest(., vcov = vcovHC(., type="HC0"))
 
 # Seguranca publica
-enr_data %>% plm(formula = dfdefsm_pcp ~ may_ideo.bmean + recorrm_pcp +
-                   pib_pcp + dist_ideo.bmean + leg_ideo.bmean + thomic +
-                   tacidt,
-                 data = .,
-                 index = c("tcode", "year"),
-                 model = "pooling") %>%
-  coeftest(., vcov = vcovHC(., type="HC0"))
-
 log_enr_data <- enr_data %>% filter(is.finite(log_dfdefsm_pcp),
                                     is.finite(log_pib_pcp),
                                     is.finite(log_recorrm_pcp))
 
 log_enr_data %>% plm(formula = log_dfdefsm_pcp ~ may_ideo.bmean + 
                        log_recorrm_pcp + log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean + thomic,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfdefsm_pcp),
+                                    is.finite(log_pib_pcp))
+
+log_enr_data %>% plm(formula = log_dfdefsm_pcp ~ may_ideo.bmean + 
+                       log_pib_pcp + dist_ideo.bmean + 
+                       leg_ideo.bmean + thomic,
+                     data = .,
+                     index = c("tcode", "year"),
+                     model = "pooling") %>%
+  coeftest(., vcov = vcovHC(., type="HC0"))
+
+log_enr_data <- enr_data %>% filter(is.finite(log_dfdefsm_pcp),
+                                    is.finite(log_recorrm_pcp))
+
+log_enr_data %>% plm(formula = log_dfdefsm_pcp ~ may_ideo.bmean + 
+                       log_recorrm_pcp + dist_ideo.bmean + 
                        leg_ideo.bmean + thomic,
                      data = .,
                      index = c("tcode", "year"),
