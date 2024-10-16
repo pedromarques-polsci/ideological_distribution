@@ -105,7 +105,8 @@ leg_pb <- ggplot() +
                        labels = c("Esquerda", "Direita"),
                        guide = guide_colorbar(frame.colour = "black", 
                                               ticks.colour = "white")) +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 14)) +
+  theme_void()
 
 leg_pb
 
@@ -135,6 +136,36 @@ ggsave('plot/dist_pb.png', dpi = 300, height = 5, width = 10, unit = 'in', dist_
 
 ### 1.1.2 PERNAMBUCO --------------------------------------------------------------
 #### PREFEITURAS
+all_elect.b %>% filter(UF == "PE",
+                       ANO_ELEICAO == 2020) %>% View()
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020, UF == "PE") %>% 
+  summary(na.rm = T)
+
+all_elect.b %>% 
+  filter(UF == "PE", ANO_ELEICAO == 2020) %>% 
+  count(leg_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(desc(freq))
+
+all_elect.b %>% 
+  filter(UF == "PE", ANO_ELEICAO == 2020) %>% 
+  count(mayor_party) %>% 
+  mutate(freq = n / sum(n)) %>% arrange(desc(freq))
+
+all_elect.b %>% filter(ANO_ELEICAO == 2020) %>% View()
+
+all_elect_pe <- all_elect.b %>% filter(UF == "PE",
+                       ANO_ELEICAO == 2020)
+
+uniqv <- unique(all_elect_pe$may_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect_pe$may_ideo.bmean, uniqv)))]
+
+uniqv <- unique(all_elect_pe$leg_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect_pe$leg_ideo.bmean, uniqv)))]
+
+uniqv <- unique(all_elect_pe$dist_ideo.bmean)
+uniqv[which.max(tabulate(match(all_elect.b$dist_ideo.bmean, uniqv)))]
+
 may_pe <- ggplot() +
   labs(title = "Ideologia partidária dos prefeitos",
        subtitle = "Pernambuco (2020)") +
@@ -150,11 +181,16 @@ may_pe <- ggplot() +
                        labels = c("Esquerda", "Direita"),
                        guide = guide_colorbar(frame.colour = "black", 
                                               ticks.colour = "white")) +
+  theme_void() +
   theme(plot.title = element_text(hjust = 0.5, size = 14))
 
 may_pe
 
-ggsave('plot/may_pe.png', dpi = 300, height = 5, width = 10, unit = 'in', may_pe)
+ggsave('plot/may_pe.jpeg', dpi = 300, height = 5, width = 10, 
+       unit = 'in', may_pe)
+
+all_elect.b %>% filter(UF == "PE",
+                       ANO_ELEICAO == 2020) %>% View()
 
 #### LEGISLATURAS
 leg_pe <- ggplot() +
@@ -172,11 +208,12 @@ leg_pe <- ggplot() +
                        labels = c("Esquerda", "Direita"),
                        guide = guide_colorbar(frame.colour = "black", 
                                               ticks.colour = "white")) +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 14)) +
+  theme_void()
 
 leg_pe
 
-ggsave('plot/leg_pe.png', dpi = 300, height = 5, width = 10, unit = 'in', leg_pe)
+ggsave('plot/leg_pe.jpeg', dpi = 300, height = 5, width = 10, unit = 'in', leg_pe)
 
 #### DISTANCIA IDEOLOGICA
 dist_pe <- ggplot() +
@@ -195,7 +232,8 @@ dist_pe <- ggplot() +
                        labels = c("Convergência", "Divergência"),
                        guide = guide_colorbar(frame.colour = "black", 
                                               ticks.colour = "darkorange")) +
-  theme(plot.title = element_text(hjust = 0.5, size = 14))
+  theme(plot.title = element_text(hjust = 0.5, size = 14)) +
+  theme_void()
 
 dist_pe
 
