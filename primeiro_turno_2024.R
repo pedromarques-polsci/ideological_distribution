@@ -1,7 +1,7 @@
 # PACOTES ----------------------------------------------------------------
 if(require(dplyr) == F) install.packages('dplyr'); require(dplyr)
 if(require(geobr) == F) install.packages('geobr'); require(geobr)
-if(require(ggplot) == F) install.packages('geobr'); require(ggplot)
+if(require(ggplot) == F) install.packages('ggplot'); require(ggplot)
 if(require(janitor) == F) install.packages('janitor'); require(janitor)
 if(require(tidyverse) == F) install.packages('tidyverse'); require(tidyverse)
 

@@ -74,13 +74,16 @@ voter <- rbind(elections_tse(year = 2016, type = "voter_profile") %>%
 saveRDS(voter, "processed_data/voter.RDS")
 
 ## 1.3 Resultados eleitorais -----------------------------------------------
+### 1.3.1 Excluindo suplementares ------------------------------------------
 party_zone_2020 <- elections_tse(year = 2020, type = "party_mun_zone", uf = "all") %>% 
   mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
                                 SG_PARTIDO == "CIDADANIA" ~ "CID",
                                 SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
                                 SG_PARTIDO == "REPUBLICANOS" ~ "REP",
                                 SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
-  select(-23:-26, -31, -32, -33, -35, -36)
+  select(-23:-26, -31, -32, -33, -35, -36) %>% 
+  rename(TP_ABRANGENCIA = TP_ABRANGENCIA_ELEICAO) %>% 
+  filter(grepl("Eleições Municipais 2020", DS_ELEICAO))
 
 party_zone_2016 <- elections_tse(year = 2016, type = "party_mun_zone", uf = "all") %>% 
   mutate(SG_PARTIDO = case_when(SG_PARTIDO == "PC do B" ~ "PCDOB",
@@ -88,7 +91,8 @@ party_zone_2016 <- elections_tse(year = 2016, type = "party_mun_zone", uf = "all
                                 SG_PARTIDO == "SOLIDARIEDADE" ~ "SD",
                                 SG_PARTIDO == "REPUBLICANOS" ~ "REP",
                                 SG_PARTIDO != "PC do B" ~ SG_PARTIDO)) %>% 
-  select(-28) %>% rename(QT_VOTOS_NOMINAIS_VALIDOS = 27)
+  select(-28) %>% rename(QT_VOTOS_NOMINAIS_VALIDOS = 27) %>% 
+  filter(grepl("Eleições Municipais 2016", DS_ELEICAO))
 
 party_zone <- rbind(party_zone_2020, party_zone_2016)
 
@@ -96,6 +100,26 @@ party_zone <- rbind(party_zone_2020, party_zone_2016)
 saveRDS(party_zone, "processed_data/party_zone.RDS")
 
 # Maioria em primeiro turno entre cidades onde ha segundo turno
+majority_round_sup <- party_zone %>% 
+  left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
+            join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
+  filter(voter_sum > 200000) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(NR_TURNO == 1, CD_CARGO == 11) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO) %>% 
+  reframe(QT_VOTOS_NOMINAIS_VALIDOS = sum(QT_VOTOS_NOMINAIS_VALIDOS),
+          NR_TURNO = unique(NR_TURNO), NM_MUNICIPIO = unique(NM_MUNICIPIO),
+          ANO_ELEICAO = unique(ANO_ELEICAO)) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  mutate(tot_vote = sum(QT_VOTOS_NOMINAIS_VALIDOS)) %>% 
+  group_by(CD_MUNICIPIO, SG_PARTIDO, ANO_ELEICAO) %>% 
+  mutate(vote_share = QT_VOTOS_NOMINAIS_VALIDOS/tot_vote) %>% 
+  group_by(CD_MUNICIPIO, ANO_ELEICAO) %>% 
+  filter(any(vote_share > 0.5),
+         QT_VOTOS_NOMINAIS_VALIDOS %in% 
+           sort(QT_VOTOS_NOMINAIS_VALIDOS, decreasing = T)[1:2]) %>% 
+  ungroup()
+
 majority_round <- party_zone %>% 
   left_join(voter %>% select(voter_sum, CD_MUNICIPIO, elec_year), 
             join_by(CD_MUNICIPIO, ANO_ELEICAO == elec_year)) %>% 
@@ -401,16 +425,16 @@ mayor_top.zuc <- rbind(
 
 # Desempatando
 mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 2303303 & ANO_ELEICAO == 2016
-                                     & mayor_party == "PMB"))
+                                         & mayor_party == "PMB"))
 
 mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 2504074 & ANO_ELEICAO == 2020
-                                     & mayor_party == "MDB"))
+                                         & mayor_party == "MDB"))
 
 mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 4113106 & ANO_ELEICAO == 2020
-                                     & mayor_party == "PSD"))
+                                         & mayor_party == "PSD"))
 
 mayor_top.zuc <- subset(mayor_top.zuc, !(city_ibge == 4208955 & ANO_ELEICAO == 2020
-                                     & mayor_party == "PT"))
+                                         & mayor_party == "PT"))
 
 # Selecionando o vencedor e cruzando com dados legislativos
 all_elect.zuc <- mayor_top.zuc %>% 
@@ -418,7 +442,7 @@ all_elect.zuc <- mayor_top.zuc %>%
   filter(may_vote_share == max(may_vote_share)) %>% 
   ungroup() %>% 
   left_join(party_seats.zuc_mun %>% select(city_tse, elec_year,
-                                         leg_ideo, UF, leg_party),
+                                           leg_ideo, UF, leg_party),
             join_by(city_tse, ANO_ELEICAO == elec_year)) %>% 
   mutate(dist_ideo = abs(may_ideo - leg_ideo)) %>% 
   select(-QT_VOTOS_NOMINAIS_VALIDOS, -NR_TURNO, -tot_vote) %>% 
@@ -448,9 +472,9 @@ codebook <- ipeadatar::search_series(language = "br") %>%
   rbind(mun_exp_code)
 
 mun_var <- purrr::map(codebook$code,
-                   ~ipeadatar::ipeadata(code = .x, language = "br") %>% 
-                     dplyr::filter(uname == "Municípios") %>% 
-  dplyr::select(-uname)) %>% 
+                      ~ipeadatar::ipeadata(code = .x, language = "br") %>% 
+                        dplyr::filter(uname == "Municípios") %>% 
+                        dplyr::select(-uname)) %>% 
   purrr::list_rbind()
 
 periodo <- as.character(seq(2000, 2024))
@@ -490,37 +514,37 @@ str_var <- str_var %>%
   mutate(estpop = na.approx(estpop, na.rm = F)) %>% 
   ungroup() %>% 
   mutate(real_recorrm = deflateBR::deflate(nominal_values = str_var$recorrm,
-                                       nominal_dates = str_var$date,
-                                       index = "ipca",
-                                       real_date = '01/2010'),
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
          real_dfagrm = deflateBR::deflate(nominal_values = str_var$dfagrm,
                                           nominal_dates = str_var$date,
                                           index = "ipca",
                                           real_date = '01/2010'),
          real_dfasprm = deflateBR::deflate(nominal_values = str_var$dfasprm,
-                                          nominal_dates = str_var$date,
-                                          index = "ipca",
-                                          real_date = '01/2010'),
-         real_dfcetm = deflateBR::deflate(nominal_values = str_var$dfcetm,
                                            nominal_dates = str_var$date,
                                            index = "ipca",
                                            real_date = '01/2010'),
-         real_dfdefsm = deflateBR::deflate(nominal_values = str_var$dfdefsm,
+         real_dfcetm = deflateBR::deflate(nominal_values = str_var$dfcetm,
                                           nominal_dates = str_var$date,
                                           index = "ipca",
                                           real_date = '01/2010'),
+         real_dfdefsm = deflateBR::deflate(nominal_values = str_var$dfdefsm,
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
          real_dfeducm = deflateBR::deflate(nominal_values = str_var$dfeducm,
                                            nominal_dates = str_var$date,
                                            index = "ipca",
                                            real_date = '01/2010'),
          real_dfhabm = deflateBR::deflate(nominal_values = str_var$dfhabm,
-                                      nominal_dates = str_var$date,
-                                      index = "ipca",
-                                      real_date = '01/2010'),
-         real_dfsausm = deflateBR::deflate(nominal_values = str_var$dfsausm,
                                           nominal_dates = str_var$date,
                                           index = "ipca",
                                           real_date = '01/2010'),
+         real_dfsausm = deflateBR::deflate(nominal_values = str_var$dfsausm,
+                                           nominal_dates = str_var$date,
+                                           index = "ipca",
+                                           real_date = '01/2010'),
          real_dftrabm = deflateBR::deflate(nominal_values = str_var$dftrabm,
                                            nominal_dates = str_var$date,
                                            index = "ipca",
@@ -546,3 +570,24 @@ str_var %>%
 
 # Exporting raw data
 saveRDS(str_var, "processed_data/structured_mun_var.rds")
+
+# Leftover ------------------------------------------------------------
+party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 1, CD_CARGO == 11) %>% 
+  distinct(CD_MUNICIPIO, NM_MUNICIPIO)
+
+View(party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 1, CD_CARGO == 11))
+
+View(party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 2, CD_CARGO == 11))
+
+View(party_zone_2020 %>% filter(CD_CARGO == 11))
+
+View(party_zone_2020 %>% filter(CD_CARGO == 11, CD_MUNICIPIO == 2259)) %>% 
+  summarise(x = sum(QT_VOTOS_NOMINAIS_VALIDOS))
+
+View(party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 1, CD_CARGO == 11))
+
+party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 1) %>% 
+  distinct(NM_MUNICIPIO)
+
+party_zone_2020 %>% filter(CD_TIPO_ELEICAO == 1) %>% 
+  distinct(NM_MUNICIPIO)
